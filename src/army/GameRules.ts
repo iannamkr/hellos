@@ -1,6 +1,7 @@
 import type { NodeId, SupportId, KeystoneId, ItemId } from '../types';
 import type { ArmyUnit } from '../entities/ArmyUnit';
 import type { EnemyBase } from '../entities/EnemyBase';
+import type { UnitStats } from '../../shared/balance/schema';
 
 export interface GameRules {
   // Build queries
@@ -11,6 +12,7 @@ export interface GameRules {
 
   // Per-frame state (set by GameScene)
   now: number;
+  dtMs: number;
   speedMult: number;
   armyAttackOff: boolean;
   archerFireOff: boolean;
@@ -26,8 +28,31 @@ export interface GameRules {
   mark: EnemyBase | null;
   aura: { active: boolean; cx: number; cy: number; r: number };
 
+  // Front-line anchor (FLAG + dir * V_LINE_DEPTH)
+  lineAnchor: { x: number; y: number };
+  // Active vanguard positions (for cavalry gap detection)
+  vanguardPositions: Array<{ x: number; y: number }>;
+  // Number of cavalry currently in intercept/disrupt phase
+  cavalryInterceptCount: number;
+  // Active enemies reference (for cavalry gap scanning)
+  enemies: readonly EnemyBase[];
+
   // Anchors (for A3 push logic)
   anchorV: { x: number; y: number };
+
+  // Archer leader position (first active vanguard, or player if none)
+  archerLeader: { x: number; y: number };
+
+  // Reform movement constants (from commander balance)
+  reformSpeedMult: number;
+  reformArriveRadius: number;
+  reformBrakeRadius: number;
+  reformStaggerInterval: number;
+
+  // Balance data (per-squad)
+  vanguardBalance: UnitStats;
+  archerBalance: UnitStats;
+  cavalryBalance: UnitStats;
 
   // State queries
   k5Target: EnemyBase | null;

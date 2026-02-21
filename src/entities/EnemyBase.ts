@@ -1,5 +1,14 @@
 import Phaser from 'phaser';
 
+export interface EnemyUpdateContext {
+  flagX: number; flagY: number;
+  frontDirX: number; frontDirY: number;
+  rightDirX: number; rightDirY: number;
+  now: number; dt: number;
+  vanguardPositions: Array<{ x: number; y: number }>;
+  enemies: EnemyBase[];
+}
+
 export class EnemyBase extends Phaser.Physics.Arcade.Image {
   hp: number;
   baseSpeed: number;
@@ -104,7 +113,7 @@ export class EnemyBase extends Phaser.Physics.Arcade.Image {
     this.speed *= (1 - maxSlow);
   }
 
-  update(targetX: number, targetY: number): void {
+  update(targetX: number, targetY: number, _ctx?: EnemyUpdateContext): void {
     if (!this.active) return;
     if (this.isFrozen()) { this.setVelocity(0, 0); return; }
     if (this.isKnockedBack()) return;

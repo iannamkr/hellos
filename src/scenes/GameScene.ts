@@ -3,7 +3,7 @@ import { GameMode, type BuildConfig, type SupportId, type Tag, type Zone, type S
 import { getKeystone, getSkill, getSupport, getItem } from '../data/buildData';
 import { getNode } from '../data/treeData';
 import { Player }      from '../entities/Player';
-import { EnemyBase }   from '../entities/EnemyBase';
+import { EnemyBase, type EnemyUpdateContext } from '../entities/EnemyBase';
 import { Chaser }      from '../entities/Chaser';
 import { Dasher }      from '../entities/Dasher';
 import { BufferEnemy } from '../entities/BufferEnemy';
@@ -11,15 +11,14 @@ import { ArmyUnit }    from '../entities/ArmyUnit';
 import type { GameRules } from '../army/GameRules';
 import { POLICIES, moveToSlot } from '../army/SquadPolicy';
 import { COLOR } from '../colors';
+import type { BalanceData } from '../../shared/balance/schema';
+import { loadBalance } from '../../shared/balance/storage';
 
 const CLOSE_RANGE = 120;
 const SEED = 1337;
 const SPAWN_DIST = Math.ceil(Math.sqrt(1920 * 1920 + 1080 * 1080) / 2) + 120;
 const T_SEQ = [-360, -240, -120, 0, 120, 240, 360];
-const PLATOON_SPAWN_INTERVAL = 5000;
 const MAX_PLATOONS = { core: 3, repeat: 5 };
-const VOLLEY_CYCLE = 900;
-const VOLLEY_WINDOW = 120;
 
 type SpawnChannel = 'front' | 'flankL' | 'flankR' | 'back';
 type PlatoonType = 'chaser' | 'dasher' | 'buffer';
@@ -32,7 +31,6 @@ interface Platoon {
   spawnTime: number;
 }
 
-const PLATOON_SIZES: Record<PlatoonType, number> = { chaser: 7, dasher: 5, buffer: 5 };
 
 // Wingman offsets: [lateral, behind] per formation type (WEDGE/LINE/COLUMN)
 const WING_OFFSETS: Array<Array<[number, number]>> = [
@@ -52,9 +50,11 @@ function mulberry32(seed: number): () => number {
 }
 
 export class GameScene extends Phaser.Scene {
+  // Balance (loaded from shared/balance localStorage)
+  private balanceData!: BalanceData;
+
   // Build
   private build!: BuildConfig;
-  private allTags!: Set<Tag>;
   private supActive!: [boolean, boolean];
   private baseAttackCD = 400;
   private baseDashCD = 1400;
@@ -62,10 +62,8 @@ export class GameScene extends Phaser.Scene {
 
   // Tree node runtime state
   private activeNodes = new Set<NodeId>();
-  private d1MarkTarget: EnemyBase | null = null;  // D1 mark lock target
   private d1LockUntil = 0;      // D1 mark change lockout
   private d4BuffUntil = 0;      // D4 execution → archer priority shift
-  private d6ExecTimer = 0;      // D6 forced exit timer (per enemy)
   private d6ExecTargets = new Map<EnemyBase, number>(); // D6 2s forced exit
   private e4StillTimer = 0;     // E4 still duration tracker
   private e4WeakenUntil = 0;    // E4 flank weaken window
@@ -207,6 +205,9 @@ export class GameScene extends Phaser.Scene {
   // Double platoon pending
   private doublePlatoonPending: { channel: SpawnChannel; time: number } | null = null;
 
+  // Dasher disrupt immunity
+  private disruptImmunity: Map<ArmyUnit, number> = new Map();
+
   // Camera zoom
   private cameraZoom = 1.0;
   private cameraTargetZoom = 1.0;
@@ -226,12 +227,20 @@ export class GameScene extends Phaser.Scene {
   private aimGraphics!: Phaser.GameObjects.Graphics;
   private cooldownGraphics!: Phaser.GameObjects.Graphics;
   private chargeGraphics!: Phaser.GameObjects.Graphics;
-  private debugGraphics!: Phaser.GameObjects.Graphics;
   private contractText!: Phaser.GameObjects.Text;
   private encounterText!: Phaser.GameObjects.Text;
   private flagPenText!: Phaser.GameObjects.Text;
   private situationText!: Phaser.GameObjects.Text;
   private squadText!: Phaser.GameObjects.Text;
+
+  // Debug overlay
+  private debugOn = false;
+  private debugGfx!: Phaser.GameObjects.Graphics;
+  private debugHudGfx!: Phaser.GameObjects.Graphics;
+  private debugText!: Phaser.GameObjects.Text;
+
+  // Formation line visualization
+  private formationGfx!: Phaser.GameObjects.Graphics;
 
   constructor() { super({ key: 'GameScene' }); }
 
@@ -286,7 +295,7 @@ export class GameScene extends Phaser.Scene {
     this.situationCardIdx = 0;
     this.situationCardStart = 0;
     this.contractChaserSpawnCount = 0;
-    this.auraRadius = 260;
+    this.auraRadius = this.balanceData?.game?.commandAuraRadius ?? 260;
     this.auraCenterX = 0;
     this.auraCenterY = 0;
     this.auraActive = true;
@@ -311,15 +320,14 @@ export class GameScene extends Phaser.Scene {
     this.flagPenetrationTime = 0;
     this.flagGraphic = null;
     this.wingmanData = new Map();
+    this.disruptImmunity = new Map();
     this.doublePlatoonPending = null;
     this.cameraZoom = 1.0;
     this.cameraTargetZoom = 1.0;
     // Tree nodes
     this.activeNodes = new Set(this.build.nodes || []);
-    this.d1MarkTarget = null;
     this.d1LockUntil = 0;
     this.d4BuffUntil = 0;
-    this.d6ExecTimer = 0;
     this.d6ExecTargets = new Map();
     this.e4StillTimer = 0;
     this.e4WeakenUntil = 0;
@@ -336,10 +344,11 @@ export class GameScene extends Phaser.Scene {
     const W = this.scale.width;
     const H = this.scale.height;
     this._createTextures();
-    this._drawGrid(W, H);
     this._resolveBuild();
+    this.balanceData = loadBalance();
 
     this.player = new Player(this, W / 2, H / 2);
+    this._applyBalanceToCommander();
     this._applyStaticBuildEffects();
 
     // Init anchorPos to player spawn
@@ -348,11 +357,12 @@ export class GameScene extends Phaser.Scene {
     this.anchorPosC = { x: this.player.x, y: this.player.y };
 
     this._createArmy();
+    this._applyBalanceToArmy();
 
     this.stageStartTime = this.time.now;
     this.rhythmCycleStart = this.time.now;
     this.volleyCycleStart = this.time.now;
-    this.nextSpawnTime = this.time.now + PLATOON_SPAWN_INTERVAL;
+    this.nextSpawnTime = this.time.now + this.balanceData.game.platoonSpawnInterval;
 
     // FLAG at map center
     this.flagX = W / 2;
@@ -380,11 +390,33 @@ export class GameScene extends Phaser.Scene {
     // World-space graphics (camera-affected)
     this.aimGraphics = this.add.graphics().setDepth(9);
     this.chargeGraphics = this.add.graphics().setDepth(8);
-    // World-space debug overlay (scrollFactor=1, follows camera)
-    this.debugGraphics = this.add.graphics().setDepth(3);
     // Screen-space graphics (camera-independent)
     this.cooldownGraphics = this.add.graphics().setDepth(10000).setScrollFactor(0);
     this._setupUI(W, H);
+
+    // Formation line visualization (always visible)
+    this.formationGfx = this.add.graphics().setDepth(3);
+
+    // Debug overlay objects
+    this.debugGfx = this.add.graphics().setDepth(100).setVisible(false);
+    this.debugHudGfx = this.add.graphics().setDepth(10001).setScrollFactor(0).setVisible(false);
+    this.debugText = this.add.text(10, 10, '', {
+      fontSize: '13px', fontFamily: 'Courier New', color: '#cccccc',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      padding: { left: 8, right: 8, top: 6, bottom: 6 },
+    }).setDepth(10001).setScrollFactor(0).setVisible(false);
+
+    this.input.keyboard!.on('keydown-F', () => {
+      this.debugOn = !this.debugOn;
+      this.debugGfx.setVisible(this.debugOn);
+      this.debugHudGfx.setVisible(this.debugOn);
+      this.debugText.setVisible(this.debugOn);
+      if (!this.debugOn) {
+        this.debugGfx.clear();
+        this.debugHudGfx.clear();
+        this.debugText.setText('');
+      }
+    });
   }
 
   update(): void {
@@ -398,7 +430,7 @@ export class GameScene extends Phaser.Scene {
       this.player.reformTriggered = false;
       this.reformActive = true;
       this.reformStartTime = this.time.now;
-      this.reformUntil = this.time.now + 550;
+      this.reformUntil = this.time.now + (this.balanceData.commander.reformDuration ?? 550);
       // faceDir: mouse direction from commander position
       const ptr = this.input.activePointer;
       const fdx = ptr.worldX - this.player.x;
@@ -427,6 +459,7 @@ export class GameScene extends Phaser.Scene {
         this.reformCDTextUntil = this.time.now + 400;
         this.reformCDText = this.add.text(this.scale.width / 2, 140, 'Reform CD', {
           fontSize: '20px', color: '#ff4444', fontFamily: 'Courier New',
+          padding: { top: 6, bottom: 2 },
         }).setOrigin(0.5).setDepth(10000).setScrollFactor(0);
       }
     }
@@ -477,7 +510,7 @@ export class GameScene extends Phaser.Scene {
       if (this.platoons.length < maxP) {
         this._spawnPlatoon();
       }
-      this.nextSpawnTime = this.time.now + PLATOON_SPAWN_INTERVAL;
+      this.nextSpawnTime = this.time.now + this.balanceData.game.platoonSpawnInterval;
     }
     this._updateVolley();
     this._updateFlag();
@@ -498,8 +531,8 @@ export class GameScene extends Phaser.Scene {
     this._drawAimLine();
     this._refreshHpDisplay();
     this._drawCooldowns();
-    this._drawDebugOverlay();
     this._refreshSquadDisplay();
+    if (this.debugOn) this._drawSquadDebug();
     this._updateCameraZoom();
 
     // Camera follows anchor average
@@ -519,8 +552,6 @@ export class GameScene extends Phaser.Scene {
     const s1 = getSupport(this.build.supports[1]);
     const it = getItem(this.build.item);
 
-    this.allTags = new Set<Tag>([...ks.tags, ...sk.tags, ...s0.tags, ...s1.tags, ...it.tags]);
-
     const otherTags0 = new Set<Tag>([...ks.tags, ...sk.tags, ...s1.tags, ...it.tags]);
     const otherTags1 = new Set<Tag>([...ks.tags, ...sk.tags, ...s0.tags, ...it.tags]);
     this.supActive = [
@@ -533,33 +564,51 @@ export class GameScene extends Phaser.Scene {
     const p = this.player;
     const item = this.build.item;
     const ks = this.build.keystone;
+    const bal = this.balanceData;
+    const mi = bal.modifiers.items;
+    const mk = bal.modifiers.keystones;
+    const ms = bal.modifiers.supports;
 
-    this.baseAttackCD = 400;
-    this.baseDashCD = 1400;
-    this.baseSpeed = 220;
+    this.baseAttackCD = bal.commander.atkCD;
+    this.baseDashCD = bal.commander.dashCD;
+    this.baseSpeed = bal.commander.speed;
 
-    if (item === 'heavyBlade') this.baseAttackCD += 200;
-    if (item === 'calmMind')   { this.baseAttackCD -= 100; this.baseDashCD += 300; }
-    if (item === 'sprintBoots') { this.baseSpeed = 264; this.baseDashCD -= 200; p.maxHp -= 1; }
-    if (item === 'ironSkin')   this.baseSpeed = 176;
-    if (item === 'antiDashPlate') { p.dashGrantsInvincibility = false; p.iframesDuration = 2000; }
+    if (item === 'heavyBlade') this.baseAttackCD += mi.heavyBlade?.atkCdBonus ?? 200;
+    if (item === 'calmMind') {
+      this.baseAttackCD -= mi.calmMind?.atkCdReduction ?? 100;
+      this.baseDashCD += mi.calmMind?.dashCdBonus ?? 300;
+    }
+    if (item === 'sprintBoots') {
+      const mult = mi.sprintBoots?.speedMult ?? 1.2;
+      this.baseSpeed = Math.round(this.baseSpeed * mult);
+      this.baseDashCD -= mi.sprintBoots?.dashCdReduction ?? 200;
+      p.maxHp -= mi.sprintBoots?.hpPenalty ?? 1;
+    }
+    if (item === 'ironSkin') {
+      const mult = mi.ironSkin?.speedMult ?? 0.8;
+      this.baseSpeed = Math.round(this.baseSpeed * mult);
+    }
+    if (item === 'antiDashPlate') {
+      p.dashGrantsInvincibility = false;
+      p.iframesDuration = mi.antiDashPlate?.iframes ?? 2000;
+    }
 
-    if (this._hasSup('closeShock')) this.baseAttackCD += 150;
+    if (this._hasSup('closeShock')) this.baseAttackCD += ms.closeShock?.atkCdBonus ?? 150;
 
     if (ks === 'fragilePower') {
-      p.maxHp -= 2;
-      p.extraDashIframes = 100;
-      // Reduce each unit's max HP by 1 (min 1)
+      p.maxHp -= mi.fragilePower?.hpPenalty ?? 2;
+      p.extraDashIframes = mi.fragilePower?.extraDashIframes ?? 100;
+      const unitPenalty = mi.fragilePower?.unitHpPenalty ?? 1;
       for (const u of this.armyUnits) {
-        u.maxHp = Math.max(1, u.maxHp - 1);
+        u.maxHp = Math.max(1, u.maxHp - unitPenalty);
         u.hp = Math.min(u.hp, u.maxHp);
       }
     }
 
     // Set aura radius by keystone
-    if (ks === 'closePact') this.auraRadius = 200;
-    else if (ks === 'kitingVow') this.auraRadius = 260;
-    else this.auraRadius = 260;
+    const baseAura = bal.game.commandAuraRadius;
+    if (ks === 'closePact') this.auraRadius = Math.round(baseAura * (mk.closePact?.auraRadiusMult ?? 0.77));
+    else this.auraRadius = baseAura;
 
     p.hp = p.maxHp;
     p.attackCooldown = this.baseAttackCD;
@@ -610,26 +659,32 @@ export class GameScene extends Phaser.Scene {
     let atkCD = this.baseAttackCD;
     let dashCD = this.baseDashCD;
     const ks = this.build.keystone;
+    const bal = this.balanceData;
+    const mk = bal.modifiers.keystones;
+    const ms = bal.modifiers.supports;
+    const mi = bal.modifiers.items;
 
     if (ks === 'kitingVow') {
       const nearest = this._nearestEnemyDist();
-      if (nearest <= CLOSE_RANGE) atkCD *= 2;
-      else dashCD *= 0.7;
+      if (nearest <= CLOSE_RANGE) atkCD *= mk.kitingVow?.closeAtkCdMult ?? 2;
+      else dashCD *= mk.kitingVow?.farDashCdMult ?? 0.7;
     }
 
     if (this._hasSup('zoneAnchor') && this.zone) {
       const str = this._supStr('zoneAnchor');
-      if (this._isPlayerInZone()) atkCD *= (1 - 0.3 * str);
-      else atkCD *= (1 + 0.2 * str);
+      const reduction = ms.zoneAnchor?.atkReduction ?? 0.3;
+      const increase = ms.zoneAnchor?.atkIncrease ?? 0.2;
+      if (this._isPlayerInZone()) atkCD *= (1 - reduction * str);
+      else atkCD *= (1 + increase * str);
     }
 
     if (this.build.item === 'zoneCore') {
-      if (!this.zone || !this._isPlayerInZone()) atkCD += 200;
-      if (this.zone && this._isPlayerInZone()) dashCD -= 400;
+      if (!this.zone || !this._isPlayerInZone()) atkCD += mi.zoneCore?.atkCdBonusOut ?? 200;
+      if (this.zone && this._isPlayerInZone()) dashCD -= mi.zoneCore?.dashCdReductionIn ?? 400;
     }
 
-    this.player.attackCooldown = Math.max(100, Math.round(atkCD));
-    this.player.dashCooldown = Math.max(400, Math.round(dashCD));
+    this.player.attackCooldown = Math.max(bal.game.minAttackCD ?? 100, Math.round(atkCD));
+    this.player.dashCooldown = Math.max(bal.game.minDashCD ?? 400, Math.round(dashCD));
     this.player.speed = this.baseSpeed;
   }
 
@@ -667,13 +722,17 @@ export class GameScene extends Phaser.Scene {
     this.chargeGraphics.clear();
     if (!this.isCharging) return;
 
+    const cmd = this.balanceData.commander;
+    const chargeDur = cmd.chargeDuration ?? 600;
+    const ringStart = cmd.chargeRingStart ?? 20;
+    const ringMax = cmd.chargeRingMax ?? 60;
     const elapsed = this.time.now - this.chargeStartTime;
-    const progress = Math.min(1, elapsed / 600);
+    const progress = Math.min(1, elapsed / chargeDur);
 
     this.chargeGraphics.lineStyle(3, 0xffaa00, 0.6);
-    this.chargeGraphics.strokeCircle(this.player.x, this.player.y, 20 + progress * 40);
+    this.chargeGraphics.strokeCircle(this.player.x, this.player.y, ringStart + progress * (ringMax - ringStart));
 
-    if (elapsed >= 600) {
+    if (elapsed >= chargeDur) {
       this.isCharging = false;
       this.player.markAttackUsed();
       const ptr = this.input.activePointer;
@@ -694,7 +753,8 @@ export class GameScene extends Phaser.Scene {
         // Save anchor position when stopped
         this.ssAnchorX = this.player.x;
         this.ssAnchorY = this.player.y;
-        this.ssAnchorUntil = now + 2000; // lingers 2s after moving
+        const linger = this.balanceData.modifiers.keystones.stillnessStance?.anchorLinger ?? 2000;
+        this.ssAnchorUntil = now + linger;
       }
       // Aura center = anchor if active, else player
       if (now < this.ssAnchorUntil) {
@@ -735,10 +795,11 @@ export class GameScene extends Phaser.Scene {
       return nearest <= CLOSE_RANGE;
     }
     if (ks === 'kitingVow') {
-      // Archers fire only when commander-to-mark dist >= 200
+      // Archers fire only when commander-to-mark dist >= minDistToMark
+      const minDist = this.balanceData.modifiers.keystones.kitingVow?.minDistToMark ?? 200;
       if (this.tacticalMarkTarget && this.tacticalMarkTarget.active) {
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.tacticalMarkTarget.x, this.tacticalMarkTarget.y);
-        return d >= 200;
+        return d >= minDist;
       }
       // No mark → archers fire freely
       return true;
@@ -771,7 +832,7 @@ export class GameScene extends Phaser.Scene {
         this._triggerDeath();
         return;
       }
-      this.dashTaxBuffUntil = this.time.now + 1500;
+      this.dashTaxBuffUntil = this.time.now + (this.balanceData.modifiers.supports.dashTax?.buffDur ?? 1500);
 
       // Army effect: one unit from each squad takes 1 HP
       this._damageOneUnit('vanguard');
@@ -790,11 +851,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private _onDashEnd(): void {
-    // P1 Dash-Prime: 1s window for stun/knockback
+    // P1 Dash-Prime: window for stun/knockback
     if (this._hasSup('dashPrime')) {
-      this.dashPrimeUntil = this.time.now + 1000;
-      // Army effect: speed boost 1s
-      this.armySpeedBoostUntil = this.time.now + 1000;
+      const dp = this.balanceData.modifiers.supports.dashPrime;
+      this.dashPrimeUntil = this.time.now + (dp?.window ?? 1000);
+      // Army effect: speed boost
+      this.armySpeedBoostUntil = this.time.now + (dp?.armyBoostDur ?? 1000);
     }
   }
 
@@ -892,7 +954,7 @@ export class GameScene extends Phaser.Scene {
     let bonus = 0;
     const ks = this.build.keystone;
 
-    if (charged) mult *= 3;
+    if (charged) mult *= this.balanceData.commander.chargeDamageMult ?? 3;
     if (ks === 'closePact' && dist > CLOSE_RANGE) return 0;
 
     if (ks === 'singleTargetOath') {
@@ -962,30 +1024,36 @@ export class GameScene extends Phaser.Scene {
 
     if (this._hasSup('dashPrime') && this.time.now < this.dashPrimeUntil) {
       const s = this._supStr('dashPrime');
-      enemy.applyFreeze(Math.round(500 * s));
-      enemy.applyKnockback(this.player.x, this.player.y, 200, 200);
+      const dp = this.balanceData.modifiers.supports.dashPrime;
+      enemy.applyFreeze(Math.round((dp?.knockDur ?? 200) * s));
+      enemy.applyKnockback(this.player.x, this.player.y, dp?.knockForce ?? 200, dp?.knockDur ?? 200);
       this.dashPrimeUntil = 0;
     }
 
     if (this._hasSup('closeShock') && dist <= CLOSE_RANGE) {
-      enemy.applyFreeze(Math.round(500 * this._supStr('closeShock')));
+      const cs = this.balanceData.modifiers.supports.closeShock;
+      enemy.applyFreeze(Math.round((cs?.freezeDur ?? 500) * this._supStr('closeShock')));
     }
 
     if (this._hasSup('farSnare') && dist > CLOSE_RANGE) {
-      enemy.applySlow(0.4, Math.round(1500 * this._supStr('farSnare')));
+      const fs = this.balanceData.modifiers.supports.farSnare;
+      enemy.applySlow(fs?.slowFactor ?? 0.4, Math.round((fs?.slowDur ?? 1500) * this._supStr('farSnare')));
     }
 
     if (this.build.item === 'heavyBlade') {
-      enemy.applyKnockback(this.player.x, this.player.y, 200, 200);
+      const hb = this.balanceData.modifiers.items.heavyBlade;
+      enemy.applyKnockback(this.player.x, this.player.y, hb?.knockForce ?? 150, hb?.knockDur ?? 150);
     }
 
     if (this.build.item === 'hunterCharm' && enemy instanceof Chaser) {
-      enemy.applySlow(0.4, 1500);
+      const hc = this.balanceData.modifiers.items.hunterCharm;
+      enemy.applySlow(hc?.slowFactor ?? 0.4, hc?.slowDur ?? 1500);
     }
 
     if (this.build.keystone === 'fragilePower') {
       this.k6HealCounter++;
-      if (this.k6HealCounter >= 4) {
+      const restoreKills = this.balanceData.modifiers.items.bloodOath?.restoreKills ?? 4;
+      if (this.k6HealCounter >= restoreKills) {
         this.k6HealCounter = 0;
         this.player.hp = Math.min(this.player.hp + 1, this.player.maxHp);
       }
@@ -993,7 +1061,8 @@ export class GameScene extends Phaser.Scene {
 
     if (this.build.item === 'bloodOath') {
       this.i1HealCounter++;
-      if (this.i1HealCounter >= 4) {
+      const restoreKills = this.balanceData.modifiers.items.bloodOath?.restoreKills ?? 4;
+      if (this.i1HealCounter >= restoreKills) {
         this.i1HealCounter = 0;
         this.player.hp = Math.min(this.player.hp + 1, this.player.maxHp);
       }
@@ -1010,7 +1079,8 @@ export class GameScene extends Phaser.Scene {
       duration: 350, onComplete: () => ring.destroy(),
     });
 
-    const nearby = this._getActiveEnemiesInRadius(cx, cy, 80);
+    const explosionRadius = this.balanceData.game.markExplosionRadius ?? 80;
+    const nearby = this._getActiveEnemiesInRadius(cx, cy, explosionRadius);
     for (const e of nearby) {
       if (e !== enemy) this.damageEnemy(e, 2);
     }
@@ -1030,10 +1100,11 @@ export class GameScene extends Phaser.Scene {
   // ═══════════════════════════════════════════════════════════════
 
   private _isRhythmPowerWindow(): boolean {
+    const rw = this.balanceData.modifiers.supports.rhythmWindow;
     const elapsed = this.time.now - this.rhythmCycleStart;
-    const cycle = 3700;
+    const cycle = rw?.cycleDur ?? 3700;
     const phase = elapsed % cycle;
-    return phase >= 3000;
+    return phase >= (rw?.powerStart ?? 3000);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1042,10 +1113,11 @@ export class GameScene extends Phaser.Scene {
 
   private _createZone(x: number, y: number): void {
     if (this.zoneGraphic) this.zoneGraphic.destroy();
-    let duration = 4000;
-    if (this.build.item === 'zoneCore') duration *= 1.5;
-    this.zone = { x, y, radius: 80, expiresAt: this.time.now + duration };
-    this.zoneGraphic = this.add.circle(x, y, 80, 0x4488ff, 0.15).setDepth(2);
+    const zr = this.balanceData.game.zoneRadius ?? 80;
+    let duration = this.balanceData.modifiers.supports.zoneAnchor?.duration ?? 4000;
+    if (this.build.item === 'zoneCore') duration *= this.balanceData.modifiers.items.zoneCore?.durationMult ?? 1.5;
+    this.zone = { x, y, radius: zr, expiresAt: this.time.now + duration };
+    this.zoneGraphic = this.add.circle(x, y, zr, COLOR.vanguard, 0.15).setDepth(2);
   }
 
   private _isPlayerInZone(): boolean {
@@ -1102,21 +1174,25 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // MODE_CORE: single event 32s-42s "후열 노출"
+    // MODE_CORE: single event "후열 노출"
+    const g = this.balanceData.game;
+    const encStart = g.encounterStartSec ?? 32;
+    const encEnd = g.encounterEndSec ?? 42;
+    const encEarlyExit = g.encounterEarlyExitSec ?? 33;
     const elapsed = (this.time.now - this.stageStartTime) / 1000;
     const wasActive = this.encounterActive;
-    this.encounterActive = elapsed >= 32 && elapsed < 42;
+    this.encounterActive = elapsed >= encStart && elapsed < encEnd;
 
     // Buffer killed during encounter → end early
     if (this.encounterActive && wasActive) {
       const bufferAlive = this.enemies.some(e => e.active && e instanceof BufferEnemy);
-      if (!bufferAlive && elapsed > 33) {
+      if (!bufferAlive && elapsed > encEarlyExit) {
         this.encounterActive = false;
       }
     }
 
     if (this.encounterActive) {
-      const remaining = Math.ceil(42 - elapsed);
+      const remaining = Math.ceil(encEnd - elapsed);
       this.encounterText.setText(`후열 노출 ${remaining}s`);
     } else {
       this.encounterText.setText('');
@@ -1140,9 +1216,10 @@ export class GameScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     const speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
     const now = this.time.now;
+    const cmd = this.balanceData.commander;
 
-    // Speed < 10: maintain current committed
-    if (speed < 10) {
+    // Speed < threshold: maintain current committed
+    if (speed < (cmd.commitSpeedThreshold ?? 10)) {
       this.committedPendingSince = 0;
       return;
     }
@@ -1156,8 +1233,11 @@ export class GameScene extends Phaser.Scene {
     const clampedDot = Math.min(1, Math.max(-1, dot));
     const angleDeg = Math.acos(clampedDot) * (180 / Math.PI);
 
-    // F3: commit angle 25° instead of 35°
-    const commitAngle = this._hasNode('F3') ? 25 : 35;
+    // F3: overrides commit angle
+    const mn = this.balanceData.modifiers.nodes;
+    const commitAngle = this._hasNode('F3')
+      ? (mn.F3?.commitAngle ?? 25)
+      : (cmd.commitAngle ?? 35);
     if (angleDeg < commitAngle) {
       this.committedPendingSince = 0;
       return;
@@ -1175,9 +1255,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (now - this.committedPendingSince >= 180) {
-      // slerp(committed, desired, 0.6)
-      const t = 0.6;
+    if (now - this.committedPendingSince >= (cmd.commitHoldTime ?? 180)) {
+      // slerp(committed, desired, factor)
+      const t = cmd.commitSlerpFactor ?? 0.6;
       let nx = this.committedDirX * (1 - t) + dx * t;
       let ny = this.committedDirY * (1 - t) + dy * t;
       const len = Math.sqrt(nx * nx + ny * ny);
@@ -1185,34 +1265,37 @@ export class GameScene extends Phaser.Scene {
       this.committedDirX = nx;
       this.committedDirY = ny;
       this.committedPendingSince = 0;
-      // F3: cooldown 0.35s instead of 0.25s
-      this.committedCooldownUntil = now + (this._hasNode('F3') ? 350 : 250);
+      // F3: overrides commit cooldown
+      this.committedCooldownUntil = now + (this._hasNode('F3')
+        ? (mn.F3?.cooldown ?? 350)
+        : (cmd.commitCooldown ?? 250));
     }
   }
 
   private _updateAnchorPos(): void {
     const dt = this.game.loop.delta / 1000;
     const px = this.player.x, py = this.player.y;
+    const g = this.balanceData.game;
 
-    // V: rate 8, A: rate 6, C: rate 9
-    const factorV = 1 - Math.exp(-dt * 8);
+    const factorV = 1 - Math.exp(-dt * (g.anchorDecayVanguard ?? 8));
     this.anchorPosV.x += (px - this.anchorPosV.x) * factorV;
     this.anchorPosV.y += (py - this.anchorPosV.y) * factorV;
 
-    const factorA = 1 - Math.exp(-dt * 6);
+    const factorA = 1 - Math.exp(-dt * (g.anchorDecayArcher ?? 6));
     this.anchorPosA.x += (px - this.anchorPosA.x) * factorA;
     this.anchorPosA.y += (py - this.anchorPosA.y) * factorA;
 
-    const factorC = 1 - Math.exp(-dt * 9);
+    const factorC = 1 - Math.exp(-dt * (g.anchorDecayCavalry ?? 9));
     this.anchorPosC.x += (px - this.anchorPosC.x) * factorC;
     this.anchorPosC.y += (py - this.anchorPosC.y) * factorC;
   }
 
   private _updateFlag(): void {
+    const penRadius = this.balanceData.game.flagPenetrationRadius ?? 40;
     let penetrating = false;
     for (const e of this.enemies) {
       if (!e.active) continue;
-      if (Phaser.Math.Distance.Between(e.x, e.y, this.flagX, this.flagY) <= 40) {
+      if (Phaser.Math.Distance.Between(e.x, e.y, this.flagX, this.flagY) <= penRadius) {
         penetrating = true;
         break;
       }
@@ -1227,34 +1310,39 @@ export class GameScene extends Phaser.Scene {
     }
 
     // FLAG HUD warning
+    const penThreshold = (this.balanceData.game.flagPenetrationThreshold ?? 2) * 1000;
     if (this.flagPenetrationTime > 0) {
-      const pen = Math.min(2, this.flagPenetrationTime / 1000);
-      this.flagPenText.setText(`FLAG 침투 ${pen.toFixed(1)}s/2.0s`);
+      const pen = Math.min(penThreshold / 1000, this.flagPenetrationTime / 1000);
+      this.flagPenText.setText(`FLAG 침투 ${pen.toFixed(1)}s/${(penThreshold / 1000).toFixed(1)}s`);
     } else {
       this.flagPenText.setText('');
     }
 
-    // 2s cumulative penetration → one archer takes damage
-    if (this.flagPenetrationTime >= 2000) {
+    // Cumulative penetration → one archer takes damage
+    if (this.flagPenetrationTime >= penThreshold) {
       this.flagPenetrationTime = 0;
       this._damageOneUnit('archer');
     }
   }
 
   private _updateCameraZoom(): void {
-    // Tactical zoom when enemies near FLAG
+    const g = this.balanceData.game;
+    const proximity = g.cameraZoomProximity ?? 200;
+    const threshold = g.cameraZoomEnemyCount ?? 3;
+    const zoomIn = g.cameraZoomIn ?? 0.90;
+    const zoomNormal = g.cameraZoomNormal ?? 1.0;
+    const ease = g.cameraZoomEase ?? 4;
+
     let enemiesNearFlag = 0;
     for (const e of this.enemies) {
-      if (e.active && Phaser.Math.Distance.Between(e.x, e.y, this.flagX, this.flagY) <= 200) {
+      if (e.active && Phaser.Math.Distance.Between(e.x, e.y, this.flagX, this.flagY) <= proximity) {
         enemiesNearFlag++;
       }
     }
-    this.cameraTargetZoom = enemiesNearFlag >= 3 ? 0.90 : 1.0;
+    this.cameraTargetZoom = enemiesNearFlag >= threshold ? zoomIn : zoomNormal;
 
-    // Ease toward target
     const dt = this.game.loop.delta / 1000;
-    const easeRate = 4; // ~0.25s
-    this.cameraZoom += (this.cameraTargetZoom - this.cameraZoom) * (1 - Math.exp(-dt * easeRate));
+    this.cameraZoom += (this.cameraTargetZoom - this.cameraZoom) * (1 - Math.exp(-dt * ease));
     this.cameras.main.setZoom(this.cameraZoom);
   }
 
@@ -1264,41 +1352,112 @@ export class GameScene extends Phaser.Scene {
 
   private _createArmy(): void {
     const ks = this.build.keystone;
+    const g = this.balanceData.game;
     const types: Array<{ type: SquadType; count: number }> = [
-      { type: 'vanguard', count: 8 },
-      { type: 'archer', count: 8 },
-      { type: 'cavalry', count: 4 },
+      { type: 'vanguard', count: g.squadSizeVanguard ?? 8 },
+      { type: 'archer', count: g.squadSizeArcher ?? 8 },
+      { type: 'cavalry', count: g.squadSizeCavalry ?? 4 },
     ];
 
     for (const { type, count } of types) {
       for (let i = 0; i < count; i++) {
         const u = new ArmyUnit(this, this.player.x, this.player.y, type);
+        u.stableId = `${type}#${String(i).padStart(4, '0')}`;
         // fragilePower: reduce squad HP instead (handled at squad level)
         this.armyUnits.push(u);
       }
     }
 
     if (this.build.item === 'calmMind') {
-      for (const u of this.armyUnits) u.atkCD = Math.round(u.atkCD * 0.8);
+      const mult = this.balanceData.modifiers.items.calmMind?.atkCdMult ?? 0.8;
+      for (const u of this.armyUnits) u.atkCD = Math.round(u.atkCD * mult);
     }
     if (this.build.item === 'sprintBoots') {
-      for (const u of this.armyUnits) u.unitSpeed = Math.round(u.unitSpeed * 1.2);
+      const mult = this.balanceData.modifiers.items.sprintBoots?.speedMult ?? 1.2;
+      for (const u of this.armyUnits) u.unitSpeed = Math.round(u.unitSpeed * mult);
+    }
+  }
+
+  private _applyBalanceToCommander(): void {
+    const c = this.balanceData.commander;
+    this.player.maxHp = c.maxHp;
+    this.player.hp = c.maxHp;
+    this.player.speed = c.speed;
+    this.player.attackCooldown = c.atkCD;
+    this.player.dashCooldown = c.dashCD;
+    this.player.dashDuration = c.dashDuration;
+    this.player.dashSpeed = c.dashSpeed;
+    this.player.iframesDuration = c.iframes;
+    this.player.reformCD = c.reformCD;
+    this.player.reformThreshold = c.reformThreshold;
+    this.baseAttackCD = c.atkCD;
+    this.baseDashCD = c.dashCD;
+    this.baseSpeed = c.speed;
+  }
+
+  /** Apply balance data from shared/balance to all army units (after _createArmy, before item modifiers) */
+  private _applyBalanceToArmy(): void {
+    const b = this.balanceData;
+    for (const u of this.armyUnits) {
+      const stats = b.units[u.squadType];
+      if (!stats) continue;
+      u.maxHp = stats.maxHp;
+      u.hp = stats.maxHp;
+      u.dmg = stats.dmg;
+      u.atkCD = stats.atkCD;
+      u.unitSpeed = stats.unitSpeed;
+      if (stats.range !== undefined) u.atkRange = stats.range;
+      u.engageRadius = Math.min(stats.engageRadius, stats.returnRadius);
+      u.returnRadius = Math.max(stats.engageRadius, stats.returnRadius);
+    }
+    // Re-apply item modifiers on top of balance data
+    if (this.build.item === 'calmMind') {
+      const mult = this.balanceData.modifiers.items.calmMind?.atkCdMult ?? 0.8;
+      for (const u of this.armyUnits) u.atkCD = Math.round(u.atkCD * mult);
+    }
+    if (this.build.item === 'sprintBoots') {
+      const mult = this.balanceData.modifiers.items.sprintBoots?.speedMult ?? 1.2;
+      for (const u of this.armyUnits) u.unitSpeed = Math.round(u.unitSpeed * mult);
     }
   }
 
   private _buildRules(): GameRules {
     const now = this.time.now;
     const ks = this.build.keystone;
+    const mk = this.balanceData.modifiers.keystones;
     let speedMult = 1;
-    if (ks === 'momentumMode') speedMult = this.player.isMoving ? 1.5 : 0.5;
-    if (now < this.armySpeedBoostUntil) speedMult *= 1.5;
+    if (ks === 'momentumMode') speedMult = this.player.isMoving
+      ? (mk.momentumMode?.movingMult ?? 1.5)
+      : (mk.momentumMode?.stillMult ?? 0.5);
+    if (now < this.armySpeedBoostUntil) speedMult *= this.balanceData.game.armySpeedBoostMult ?? 1.5;
 
+    const dir = this.reformActive
+      ? { x: this.reformFrozenDirX, y: this.reformFrozenDirY }
+      : { x: this.committedDirX, y: this.committedDirY };
+
+    const vLineDepth = this.balanceData.units.vanguard.lineDepth ?? 160;
+    const lineAnchor = {
+      x: this.flagX + dir.x * vLineDepth,
+      y: this.flagY + dir.y * vLineDepth,
+    };
+
+    const vanguardPositions = this.armyUnits
+      .filter(u => u.active && u.squadType === 'vanguard')
+      .map(u => ({ x: u.x, y: u.y }));
+
+    const cavalryInterceptCount = this.armyUnits
+      .filter(u => u.active && u.squadType === 'cavalry'
+        && (u.cavPhase === 'intercept' || u.cavPhase === 'disrupt'))
+      .length;
+
+    const cmd = this.balanceData.commander;
     return {
       hasNode: (id) => this._hasNode(id),
       hasSup: (id) => this._hasSup(id),
       keystone: ks,
       item: this.build.item,
       now,
+      dtMs: this.game.loop.delta,
       speedMult,
       armyAttackOff: this._isArmyAttackSuppressed(),
       archerFireOff: this._isArcherFireSuppressed(),
@@ -1306,20 +1465,35 @@ export class GameScene extends Phaser.Scene {
       isVolleyOpen: this._isVolleyWindowOpen(),
       isReforming: this.reformActive,
       reformStartTime: this.reformStartTime,
+      reformSpeedMult: cmd.reformSpeedMult ?? 2.8,
+      reformArriveRadius: cmd.reformArriveRadius ?? 18,
+      reformBrakeRadius: cmd.reformBrakeRadius ?? 70,
+      reformStaggerInterval: cmd.reformStaggerInterval ?? 20,
       player: { x: this.player.x, y: this.player.y, isMoving: this.player.isMoving },
       flag: { x: this.flagX, y: this.flagY },
-      dir: this.reformActive
-        ? { x: this.reformFrozenDirX, y: this.reformFrozenDirY }
-        : { x: this.committedDirX, y: this.committedDirY },
+      dir,
       mark: this.tacticalMarkTarget,
       aura: { active: this.auraActive, cx: this.auraCenterX, cy: this.auraCenterY, r: this.auraRadius },
+      lineAnchor,
+      vanguardPositions,
+      cavalryInterceptCount,
+      enemies: this.enemies,
       anchorV: this.anchorPosV,
+      archerLeader: this._getArcherLeader(),
       k5Target: (this.k5LastTarget && this.k5LastTarget.active) ? this.k5LastTarget : null,
       d4Active: this._hasNode('D4') && now < this.d4BuffUntil,
       vanguardLowHp: this._isVanguardLowHp(),
+      vanguardBalance: this.balanceData.units.vanguard,
+      archerBalance: this.balanceData.units.archer,
+      cavalryBalance: this.balanceData.units.cavalry,
       archerFired: this.archerFiredThisWindow,
       getAttackCD: (u) => this._getArmyAttackCD(u),
     };
+  }
+
+  private _getArcherLeader(): { x: number; y: number } {
+    const v = this.armyUnits.find(u => u.active && u.squadType === 'vanguard');
+    return v ? { x: v.x, y: v.y } : { x: this.player.x, y: this.player.y };
   }
 
   private _groupUnitsByType(): Record<SquadType, ArmyUnit[]> {
@@ -1352,20 +1526,9 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
 
-      // Cavalry interception override: 420px return radius when dashing dasher nearby
       let effectiveReturn = u.returnRadius;
       // Reduce returnRadius 30% during reform
       if (rules.isReforming) effectiveReturn *= 0.7;
-      if (squad === 'cavalry' && !u.isReturning) {
-        for (const e of this.enemies) {
-          if (e.active && e instanceof Dasher && (e as Dasher).isDashing()) {
-            if (Phaser.Math.Distance.Between(u.slotX, u.slotY, e.x, e.y) <= 420) {
-              effectiveReturn = 420;
-              break;
-            }
-          }
-        }
-      }
 
       const distToSlot = Phaser.Math.Distance.Between(u.x, u.y, u.slotX, u.slotY);
 
@@ -1396,11 +1559,65 @@ export class GameScene extends Phaser.Scene {
     }
 
     this._applySeparationForce();
+    this._drawFormationLines(rules);
+  }
+
+  private _drawFormationLines(rules: GameRules): void {
+    const g = this.formationGfx;
+    g.clear();
+
+    const la = rules.lineAnchor;
+    const rx = -rules.dir.y, ry = rules.dir.x;
+
+    // Front line (vanguard color, thin)
+    g.lineStyle(2, COLOR.vanguard, 0.3);
+    g.beginPath();
+    g.moveTo(la.x + rx * 300, la.y + ry * 300);
+    g.lineTo(la.x - rx * 300, la.y - ry * 300);
+    g.strokePath();
+
+    // Cavalry phase lines
+    for (const u of this.armyUnits) {
+      if (!u.active || u.squadType !== 'cavalry') continue;
+
+      if (u.cavPhase === 'seek_gap') {
+        // Dotted line to gap point
+        const GAP_SAMPLES = [-240, -120, 0, 120, 240];
+        const gpx = la.x + rx * GAP_SAMPLES[u.cavGapIdx];
+        const gpy = la.y + ry * GAP_SAMPLES[u.cavGapIdx];
+        g.lineStyle(1, COLOR.cavalry, 0.4);
+        const dx = gpx - u.x, dy = gpy - u.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 5) {
+          const nx = dx / len, ny = dy / len;
+          const dashLen = 8, gapLen = 6;
+          let traveled = 0;
+          g.beginPath();
+          while (traveled < len) {
+            const sx = u.x + nx * traveled;
+            const sy = u.y + ny * traveled;
+            const ex = Math.min(traveled + dashLen, len);
+            g.moveTo(sx, sy);
+            g.lineTo(u.x + nx * ex, u.y + ny * ex);
+            traveled = ex + gapLen;
+          }
+          g.strokePath();
+        }
+      } else if (u.cavPhase === 'intercept') {
+        // Bold line to intercept target
+        g.lineStyle(2, COLOR.cavalry, 0.6);
+        g.beginPath();
+        g.moveTo(u.x, u.y);
+        g.lineTo(u.cavTargetX, u.cavTargetY);
+        g.strokePath();
+      }
+    }
   }
 
   private _applySeparationForce(): void {
-    const SEP_DIST = 20;
-    const SEP_FORCE = 25; // weaker than slot spring to preserve line shape
+    const g = this.balanceData.game;
+    const SEP_DIST = g.separationDist ?? 20;
+    const SEP_FORCE = g.separationForce ?? 25;
     for (let i = 0; i < this.armyUnits.length; i++) {
       const a = this.armyUnits[i];
       if (!a.active) continue;
@@ -1470,22 +1687,26 @@ export class GameScene extends Phaser.Scene {
 
     // P8 Close Shock: vanguard stun
     if (this._hasSup('closeShock') && unit.squadType === 'vanguard') {
-      target.applyFreeze(Math.round(300 * this._supStr('closeShock')));
+      const cs = this.balanceData.modifiers.supports.closeShock;
+      target.applyFreeze(Math.round((cs?.unitFreezeDur ?? 300) * this._supStr('closeShock')));
     }
     // P9 Far Snare: archer slow
     if (this._hasSup('farSnare') && unit.squadType === 'archer') {
-      target.applySlow(0.4, Math.round(1000 * this._supStr('farSnare')));
+      const fs = this.balanceData.modifiers.supports.farSnare;
+      target.applySlow(fs?.unitSlowFactor ?? 0.3, Math.round((fs?.unitSlowDur ?? 1000) * this._supStr('farSnare')));
     }
     // I4 Heavy Blade: vanguard knockback
     if (this.build.item === 'heavyBlade' && unit.squadType === 'vanguard') {
-      target.applyKnockback(unit.x, unit.y, 150, 150);
+      const hb = this.balanceData.modifiers.items.heavyBlade;
+      target.applyKnockback(unit.x, unit.y, hb?.knockForce ?? 150, hb?.knockDur ?? 150);
     }
 
     // A5: vanguard first hit = slow instead of damage
     if (this._hasNode('A5') && unit.squadType === 'vanguard') {
       if (!this.a5FirstHitMap.has(target)) {
         this.a5FirstHitMap.set(target, true);
-        target.applySlow(0.3, 1000);
+        const a5 = this.balanceData.modifiers.nodes.A5;
+        target.applySlow(a5?.slowFactor ?? 0.3, a5?.slowDur ?? 1000);
         dmg = 0;
       }
     }
@@ -1498,14 +1719,15 @@ export class GameScene extends Phaser.Scene {
     // Apply damage
     if (dmg > 0 && this.damageEnemy(target, dmg)) {
       this.armyKillCount++;
-      // I1 Blood Oath: 4 army kills → restore unit
-      if (this.build.item === 'bloodOath' && this.armyKillCount >= 4) {
+      // I1 Blood Oath: army kills → restore unit
+      const restoreKills = this.balanceData.modifiers.items.bloodOath?.restoreKills ?? 4;
+      if (this.build.item === 'bloodOath' && this.armyKillCount >= restoreKills) {
         this.armyKillCount = 0;
         this._restoreArmyUnit();
       }
-      // D4: mark target killed → archer priority shift 3s
+      // D4: mark target killed → archer priority shift
       if (this._hasNode('D4') && target === this.tacticalMarkTarget) {
-        this.d4BuffUntil = this.time.now + 3000;
+        this.d4BuffUntil = this.time.now + (this.balanceData.modifiers.nodes.D4?.buffDur ?? 3000);
       }
       // D6: mark target first hit → start 2s forced exit timer
       if (this._hasNode('D6') && target === this.tacticalMarkTarget && !this.d6ExecTargets.has(target)) {
@@ -1523,10 +1745,16 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: flash, alpha: 0, scaleX: 2, scaleY: 2, duration: 100, onComplete: () => flash.destroy() });
       this._spawnArrowVisual(unit.x, unit.y, target.x, target.y);
 
-      // B5: arrow hit = 1s pull toward FLAG
+      // B5: arrow hit = pull toward FLAG
       if (this._hasNode('B5') && target.active) {
+        const b5 = this.balanceData.modifiers.nodes.B5;
         const angle = Phaser.Math.Angle.Between(target.x, target.y, this.flagX, this.flagY);
-        target.applyKnockback(target.x - Math.cos(angle) * 100, target.y - Math.sin(angle) * 100, 60, 1000);
+        target.applyKnockback(
+          target.x - Math.cos(angle) * (b5?.pullDist ?? 100),
+          target.y - Math.sin(angle) * (b5?.pullDist ?? 100),
+          b5?.pullForce ?? 60,
+          b5?.pullDur ?? 1000,
+        );
       }
     }
 
@@ -1563,8 +1791,8 @@ export class GameScene extends Phaser.Scene {
     const current = this.armyUnits.filter(u => u.active && u.squadType === type).length;
     if (current >= maxCounts[type]) return;
     const u = new ArmyUnit(this, this.player.x, this.player.y, type);
-    if (this.build.item === 'calmMind') u.atkCD = Math.round(u.atkCD * 0.8);
-    if (this.build.item === 'sprintBoots') u.unitSpeed = Math.round(u.unitSpeed * 1.2);
+    if (this.build.item === 'calmMind') u.atkCD = Math.round(u.atkCD * (this.balanceData.modifiers.items.calmMind?.atkCdMult ?? 0.8));
+    if (this.build.item === 'sprintBoots') u.unitSpeed = Math.round(u.unitSpeed * (this.balanceData.modifiers.items.sprintBoots?.speedMult ?? 1.2));
     this.armyUnits.push(u);
   }
 
@@ -1712,6 +1940,57 @@ export class GameScene extends Phaser.Scene {
     this._damageUnit(alive[0], 1);
   }
 
+  private _handleDasherDisrupt(dasher: Dasher): void {
+    const now = this.time.now;
+    // Find nearest ArmyUnit within radius 60
+    let nearest: ArmyUnit | null = null;
+    let minDist = 60;
+    for (const u of this.armyUnits) {
+      if (!u.active) continue;
+      const d = Phaser.Math.Distance.Between(dasher.x, dasher.y, u.x, u.y);
+      if (d < minDist) { minDist = d; nearest = u; }
+    }
+    if (!nearest) return;
+
+    // Immunity check: 1.2s re-application cooldown
+    const lastHit = this.disruptImmunity.get(nearest);
+    if (lastHit !== undefined && now - lastHit < 1200) return;
+    this.disruptImmunity.set(nearest, now);
+
+    // Knockback direction: dasher → unit
+    const kbAngle = Phaser.Math.Angle.Between(dasher.x, dasher.y, nearest.x, nearest.y);
+    const isFirstHit = dasher.disruptHitCount <= 1;
+
+    if (isFirstHit) {
+      // Strong hit: knockback 80px + damage
+      const kbDist = 80;
+      nearest.x += Math.cos(kbAngle) * kbDist;
+      nearest.y += Math.sin(kbAngle) * kbDist;
+      if (nearest.squadType === 'archer') {
+        // Archer: no damage, but 80px push + nextAtk delay
+        nearest.nextAtk = Math.max(nearest.nextAtk, now + 500);
+      } else {
+        this._damageUnit(nearest, 1);
+      }
+    } else {
+      // Weak hit: knockback 35px only
+      const kbDist = 35;
+      nearest.x += Math.cos(kbAngle) * kbDist;
+      nearest.y += Math.sin(kbAngle) * kbDist;
+    }
+
+    // Visual: knockback arrow, fade after 0.2s
+    const arrowLen = 20;
+    const arrow = this.add.graphics().setDepth(7);
+    arrow.lineStyle(2, 0xff6600, 0.9);
+    arrow.lineBetween(
+      nearest.x - Math.cos(kbAngle) * arrowLen,
+      nearest.y - Math.sin(kbAngle) * arrowLen,
+      nearest.x, nearest.y,
+    );
+    this.tweens.add({ targets: arrow, alpha: 0, duration: 200, onComplete: () => arrow.destroy() });
+  }
+
   private _updateSquadReform(): void {
     const now = this.time.now;
     for (const type of ['vanguard', 'archer', 'cavalry'] as SquadType[]) {
@@ -1754,6 +2033,7 @@ export class GameScene extends Phaser.Scene {
     const overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.6).setDepth(20000).setScrollFactor(0);
     const title = this.add.text(W / 2, H / 2 - 80, '증원 선택', {
       fontSize: '36px', color: '#ffaa00', fontFamily: 'Courier New',
+      padding: { top: 10, bottom: 2 },
     }).setOrigin(0.5).setDepth(20001).setScrollFactor(0);
 
     const vCount = this.armyUnits.filter(u => u.active && u.squadType === 'vanguard').length;
@@ -1777,13 +2057,15 @@ export class GameScene extends Phaser.Scene {
       `궁병 +1 (${aCount}명)\n${descs.archer}`,
       `기병 +1 (${cCount}명)\n${descs.cavalry}`,
     ];
-    const colors = ['#4488ff', '#88ff44', '#ffdd44'];
+    const colors = [`#${COLOR.vanguard.toString(16).padStart(6, '0')}`, `#${COLOR.archer.toString(16).padStart(6, '0')}`, `#${COLOR.cavalry.toString(16).padStart(6, '0')}`];
     const buttons: Phaser.GameObjects.Text[] = [];
 
     for (let i = 0; i < 3; i++) {
-      const btn = this.add.text(W / 2 - 220 + i * 220, H / 2 + 20, labels[i], {
-        fontSize: '26px', color: colors[i], fontFamily: 'Courier New',
-        backgroundColor: '#1a1a1a', padding: { x: 16, y: 12 },
+      const btn = this.add.text(W / 2 - 280 + i * 280, H / 2 + 20, labels[i], {
+        fontSize: '22px', color: colors[i], fontFamily: 'Courier New',
+        backgroundColor: '#1a1a1a', padding: { left: 16, right: 16, top: 10, bottom: 6 },
+        wordWrap: { width: 220 },
+        align: 'center',
       }).setOrigin(0.5).setDepth(20001).setScrollFactor(0).setInteractive({ useHandCursor: true });
 
       btn.on('pointerdown', () => {
@@ -1969,6 +2251,7 @@ export class GameScene extends Phaser.Scene {
     const W = this.scale.width;
     const flash = this.add.text(W / 2, 130, '재정렬!', {
       fontSize: '24px', color: '#00ff88', fontFamily: 'Courier New',
+      padding: { top: 4, bottom: 2 },
     }).setOrigin(0.5).setDepth(10000).setScrollFactor(0);
     this.tweens.add({ targets: flash, alpha: 0, duration: 600, onComplete: () => flash.destroy() });
   }
@@ -1993,6 +2276,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.reformIndicator) {
         this.reformIndicator = this.add.text(this.scale.width / 2, 110, '', {
           fontSize: '20px', color: '#888888', fontFamily: 'Courier New',
+          padding: { top: 6, bottom: 2 },
         }).setOrigin(0.5).setDepth(D).setScrollFactor(0);
       }
       if (holdMs < 220) {
@@ -2295,27 +2579,55 @@ export class GameScene extends Phaser.Scene {
   }
 
   private _spawnSingleEnemy(type: PlatoonType, x: number, y: number): EnemyBase {
+    const bal = this.balanceData;
     switch (type) {
       case 'dasher': {
         const d = new Dasher(this, x, y);
-        if (this.build.keystone === 'momentumMode') d.windupMultiplier = 1.2;
+        const es = bal.enemies.dasher;
+        d.hp = es.maxHp;
+        d.baseSpeed = es.speed;
+        d.speed = es.speed;
+        if (es.dashWindup !== undefined) d.dashWindup = es.dashWindup;
+        if (es.dashSpeed !== undefined) d.dashSpd = es.dashSpeed;
+        if (es.dashDuration !== undefined) d.dashDur = es.dashDuration;
+        if (es.patrolDuration !== undefined) d.patrolDur = es.patrolDuration;
+        if (es.flashInterval !== undefined) d.flashInterval = es.flashInterval;
+        if (es.telegraphLength !== undefined) d.telegraphLen = es.telegraphLength;
+        if (es.cooldownDuration !== undefined) d.cooldownDur = es.cooldownDuration;
+        if (es.disruptDuration !== undefined) d.disruptDuration = es.disruptDuration;
+        if (es.egressDuration !== undefined) d.egressDuration = es.egressDuration;
+        if (es.egressSpeed !== undefined) d.egressSpd = es.egressSpeed;
+        if (es.penetrationDist !== undefined) d.penetrationDist = es.penetrationDist;
+        if (this.build.keystone === 'momentumMode') d.windupMultiplier = this.balanceData.modifiers.keystones.momentumMode?.dasherWindupMult ?? 1.2;
         if (GameMode.repeat && this.contractType === 'vanguard' && this.time.now < this.contractUntil) {
           d.windupMultiplier = Math.min(d.windupMultiplier, 0.85);
         }
+        d.onDisruptHit = (dasher) => this._handleDasherDisrupt(dasher);
         return d;
       }
       case 'buffer': {
         const b = new BufferEnemy(this, x, y);
-        const speed = 40 + this.rng() * 15;
+        const es = bal.enemies.buffer;
+        b.hp = es.maxHp;
+        const speed = es.speed + this.rng() * (es.speedRange ?? 15);
         b.baseSpeed = speed;
         b.speed = speed;
+        if (es.auraRadius !== undefined) b.auraRadius = es.auraRadius;
+        if (es.auraSpeedBoost !== undefined) b.auraSpeedBoost = es.auraSpeedBoost;
         return b;
       }
       default: {
         const c = new Chaser(this, x, y);
-        const speed = 65 + this.rng() * 20;
+        const es = bal.enemies.chaser;
+        c.hp = es.maxHp;
+        const speed = es.speed + this.rng() * (es.speedRange ?? 20);
         c.baseSpeed = speed;
         c.speed = speed;
+        c.spawnId = this.spawnIndex;
+        if (es.lineHoldDist !== undefined) c.lineHoldDist = es.lineHoldDist;
+        if (es.cohesionRadius !== undefined) c.cohesionRadius = es.cohesionRadius;
+        if (es.slotSpacing !== undefined) c.slotSpacing = es.slotSpacing;
+        if (es.lineHoldSpeedMult !== undefined) c.lineHoldSpeedMult = es.lineHoldSpeedMult;
         if (this.contractType === 'archer' && this.time.now < this.contractUntil) {
           this.contractChaserSpawnCount++;
         }
@@ -2361,10 +2673,22 @@ export class GameScene extends Phaser.Scene {
       const aliveCavalry = this.armyUnits.filter(u => u.active && u.squadType === 'cavalry').length;
       if (aliveCavalry === 0) type = 'chaser';
     }
+
+    // Max 2 active dasher leaders
+    if (type === 'dasher') {
+      const activeDasherLeaders = this.platoons.filter(p => p.type === 'dasher' && p.leader.active).length;
+      if (activeDasherLeaders >= 2) type = 'chaser';
+    }
     const formIdx = this.platoonFormCycle % 3;
     this.platoonFormCycle++;
 
-    const size = PLATOON_SIZES[type];
+    const g = this.balanceData.game;
+    const balSizes: Record<PlatoonType, number> = {
+      chaser: g.platoonSizeChaser,
+      dasher: g.platoonSizeDasher,
+      buffer: g.platoonSizeBuffer,
+    };
+    const size = balSizes[type];
     const tIdx = this.spawnIndex % T_SEQ.length;
     const lateralOffset = T_SEQ[tIdx];
     this.spawnIndex++;
@@ -2410,6 +2734,10 @@ export class GameScene extends Phaser.Scene {
       if (!data.leader.active) this.wingmanData.delete(wingman);
     }
     this.platoons = this.platoons.filter(p => p.enemies.some(e => e.active));
+    // Clean dead units from disrupt immunity map
+    for (const [unit] of this.disruptImmunity) {
+      if (!unit.active) this.disruptImmunity.delete(unit);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -2435,6 +2763,23 @@ export class GameScene extends Phaser.Scene {
     for (const e of this.enemies) {
       if (e.active) e.computeSpeed(now);
     }
+
+    // Build EnemyUpdateContext once per frame
+    const vanguardPositions: Array<{ x: number; y: number }> = [];
+    for (const u of this.armyUnits) {
+      if (u.active && u.squadType === 'vanguard') {
+        vanguardPositions.push({ x: u.x, y: u.y });
+      }
+    }
+    const ctx: EnemyUpdateContext = {
+      flagX: this.flagX, flagY: this.flagY,
+      frontDirX: this.committedDirX, frontDirY: this.committedDirY,
+      rightDirX: -this.committedDirY, rightDirY: this.committedDirX,
+      now, dt: this.game.loop.delta,
+      vanguardPositions,
+      enemies: this.enemies,
+    };
+
     for (const e of this.enemies) {
       if (!e.active) continue;
       if (e.isFrozen()) { e.setVelocity(0, 0); continue; }
@@ -2475,7 +2820,7 @@ export class GameScene extends Phaser.Scene {
 
       // Leader or solo enemy: normal targeting
       const target = this._getEnemyTarget(e);
-      e.update(target.x, target.y);
+      e.update(target.x, target.y, ctx);
     }
   }
 
@@ -2546,6 +2891,9 @@ export class GameScene extends Phaser.Scene {
       const W = this.scale.width, H = this.scale.height;
       const msg = this.add.text(W / 2, H / 2, '스테이지 클리어!', {
         fontSize: '56px', color: '#00ff88', fontFamily: 'Courier New',
+        wordWrap: { width: W - 80 },
+        align: 'center',
+        padding: { top: 14, bottom: 4 },
       }).setOrigin(0.5).setDepth(15000).setScrollFactor(0);
       this.tweens.add({ targets: msg, alpha: 0, y: msg.y - 50, duration: 1500 });
       this.time.delayedCall(1600, () => {
@@ -2560,22 +2908,26 @@ export class GameScene extends Phaser.Scene {
 
   private _isVolleyWindowOpen(): boolean {
     const elapsed = this.time.now - this.volleyCycleStart;
-    const phase = elapsed % VOLLEY_CYCLE;
-    return phase < VOLLEY_WINDOW;
+    const vc = this.balanceData.game.volleyCycle;
+    const vw = this.balanceData.game.volleyWindow;
+    const phase = elapsed % vc;
+    return phase < vw;
   }
 
   private _updateVolley(): void {
     const elapsed = this.time.now - this.volleyCycleStart;
-    const phase = elapsed % VOLLEY_CYCLE;
+    const vc = this.balanceData.game.volleyCycle;
+    const vw = this.balanceData.game.volleyWindow;
+    const phase = elapsed % vc;
     // Reset fired set at start of each window
-    if (phase < VOLLEY_WINDOW && this.archerFiredThisWindow.size > 0) {
+    if (phase < vw && this.archerFiredThisWindow.size > 0) {
       // Check if we just entered a new cycle
-      const prevPhase = (elapsed - 16) % VOLLEY_CYCLE; // rough dt
-      if (prevPhase >= VOLLEY_WINDOW || prevPhase < 0) {
+      const prevPhase = (elapsed - 16) % vc; // rough dt
+      if (prevPhase >= vw || prevPhase < 0) {
         this.archerFiredThisWindow.clear();
       }
     }
-    if (phase >= VOLLEY_WINDOW) {
+    if (phase >= vw) {
       this.archerFiredThisWindow.clear();
     }
   }
@@ -2593,7 +2945,7 @@ export class GameScene extends Phaser.Scene {
   private _createTextures(): void {
     const make = (key: string, color: number, w: number, h: number) => {
       if (this.textures.exists(key)) return;
-      const g = this.make.graphics({ add: false });
+      const g = this.make.graphics({ add: false } as any);
       g.fillStyle(color);
       g.fillRect(1, 1, w - 2, h - 2);
       g.generateTexture(key, w, h);
@@ -2608,19 +2960,12 @@ export class GameScene extends Phaser.Scene {
     make('unit_cavalry',   0xffffff, 16, 16);
 
     if (!this.textures.exists('arrow')) {
-      const g = this.make.graphics({ add: false });
+      const g = this.make.graphics({ add: false } as any);
       g.fillStyle(0xffffff);
       g.fillRect(0, 1, 12, 3);
       g.generateTexture('arrow', 12, 5);
       g.destroy();
     }
-  }
-
-  private _drawGrid(W: number, H: number): void {
-    const g = this.add.graphics();
-    g.lineStyle(1, 0x111111);
-    for (let x = 0; x <= W; x += 90) g.lineBetween(x, 0, x, H);
-    for (let y = 0; y <= H; y += 90) g.lineBetween(0, y, W, y);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -2632,10 +2977,12 @@ export class GameScene extends Phaser.Scene {
 
     this.timerText = this.add.text(W / 2, 16, `${this.stageDuration}s`, {
       fontSize: '30px', color: '#bbbbbb', fontFamily: 'Courier New',
+      padding: { top: 8, bottom: 2 },
     }).setOrigin(0.5, 0).setDepth(D).setScrollFactor(0);
 
     this.killText = this.add.text(W - 20, 16, '처치  0', {
       fontSize: '22px', color: '#999999', fontFamily: 'Courier New',
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(1, 0).setDepth(D).setScrollFactor(0);
 
     this.hpDisplay = this.add.graphics().setDepth(D).setScrollFactor(0);
@@ -2649,28 +2996,40 @@ export class GameScene extends Phaser.Scene {
     const label = `${ks.label} · ${sk.label} · ${s0.label}${this.supActive[0]?'':'(약)'} · ${s1.label}${this.supActive[1]?'':'(약)'} · ${it.label}`;
     this.add.text(20, H - 18, label, {
       fontSize: '16px', color: '#666666', fontFamily: 'Courier New',
+      wordWrap: { width: W - 40 },
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(0, 1).setDepth(D).setScrollFactor(0);
 
     // Squad display
     this.squadText = this.add.text(20, 50, '', {
       fontSize: '20px', color: '#888888', fontFamily: 'Courier New',
+      wordWrap: { width: W / 2 - 40 },
+      padding: { top: 6, bottom: 2 },
     }).setDepth(D).setScrollFactor(0);
 
     this.contractText = this.add.text(20, 80, '', {
       fontSize: '20px', color: '#ffaa00', fontFamily: 'Courier New',
+      wordWrap: { width: W / 2 - 40 },
+      padding: { top: 6, bottom: 2 },
     }).setDepth(D).setScrollFactor(0);
 
     this.encounterText = this.add.text(W / 2, 52, '', {
       fontSize: '22px', color: '#ff4444', fontFamily: 'Courier New',
+      wordWrap: { width: W - 200 },
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(0.5).setDepth(D).setScrollFactor(0);
 
     this.situationText = this.add.text(W / 2, 76, '', {
       fontSize: '20px', color: '#ff8800', fontFamily: 'Courier New',
+      wordWrap: { width: W - 200 },
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(0.5).setDepth(D).setScrollFactor(0);
 
     // FLAG penetration warning
     this.flagPenText = this.add.text(W / 2, 100, '', {
       fontSize: '20px', color: '#ff4444', fontFamily: 'Courier New',
+      wordWrap: { width: W - 200 },
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(0.5).setDepth(D).setScrollFactor(0);
 
     // Tree node HUD
@@ -2678,6 +3037,7 @@ export class GameScene extends Phaser.Scene {
     this.nodeHudText = this.add.text(W - 20, 50, nodeLabels, {
       fontSize: '16px', color: '#555555', fontFamily: 'Courier New',
       wordWrap: { width: 400 },
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(1, 0).setDepth(D).setScrollFactor(0);
 
     // Cooldown labels
@@ -2691,12 +3051,16 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < barNames.length; i++) {
       this.add.text(barStartX + i * 130, barY - 18, barNames[i], {
         fontSize: '16px', color: '#888888', fontFamily: 'Courier New',
+        padding: { top: 6, bottom: 2 },
       }).setDepth(D).setScrollFactor(0);
     }
 
     // Hint
     this.add.text(W / 2, H - 25, 'WASD 이동 · 좌클릭 공격 · Shift 대시/홀드 재정렬 · R 재시작 · B 빌드', {
       fontSize: '16px', color: '#444444', fontFamily: 'Courier New',
+      wordWrap: { width: W - 80 },
+      align: 'center',
+      padding: { top: 6, bottom: 2 },
     }).setOrigin(0.5).setDepth(D).setScrollFactor(0);
   }
 
@@ -2782,27 +3146,66 @@ export class GameScene extends Phaser.Scene {
 
   private _spawnArrowVisual(fromX: number, fromY: number, toX: number, toY: number): void {
     const arrow = this.add.image(fromX, fromY, 'arrow').setDepth(6).setTint(COLOR.archer);
-    const angle = Phaser.Math.Angle.Between(fromX, fromY, toX, toY);
-    arrow.setRotation(angle);
     const dist = Phaser.Math.Distance.Between(fromX, fromY, toX, toY);
-    const speed = 1000;
-    const duration = (dist / speed) * 1000;
+    const arcHeight = Math.sin(Math.PI * 0.5) * Phaser.Math.Clamp(dist * 0.12, 24, 86);
+    const duration = Math.max(100, (dist / 800) * 1000);
+    const startTime = this.time.now;
 
-    this.tweens.add({
-      targets: arrow,
-      x: toX,
-      y: toY,
-      duration: Math.max(50, duration),
-      onComplete: () => {
+    const trail: Phaser.GameObjects.Arc[] = [];
+
+    const onUpdate = () => {
+      if (!arrow.active) return;
+      const elapsed = this.time.now - startTime;
+      const rawT = Phaser.Math.Clamp(elapsed / duration, 0, 1);
+      // easeInQuad: terminal acceleration (accelerates toward target)
+      const t = rawT * rawT;
+
+      const cx = fromX + (toX - fromX) * t;
+      const cy = fromY + (toY - fromY) * t;
+      const yOff = Math.sin(Math.PI * t) * arcHeight;
+      arrow.x = cx;
+      arrow.y = cy - yOff;
+
+      // Rotation: tangent of arc
+      const dt = 0.01;
+      const t2 = Math.min(1, rawT + dt);
+      const t2e = t2 * t2;
+      const nx = fromX + (toX - fromX) * t2e;
+      const ny = (fromY + (toY - fromY) * t2e) - Math.sin(Math.PI * t2e) * arcHeight;
+      arrow.setRotation(Math.atan2(ny - arrow.y, nx - arrow.x));
+
+      // Scale up slightly at apex, shrink toward impact
+      arrow.setScale(0.8 + 0.4 * Math.sin(Math.PI * t));
+
+      // Trail at t > 0.75
+      if (t > 0.75) {
+        const dot = this.add.circle(arrow.x, arrow.y, 2, COLOR.archer, 0.5).setDepth(5);
+        trail.push(dot);
+        this.tweens.add({ targets: dot, alpha: 0, duration: 150, onComplete: () => dot.destroy() });
+      }
+
+      if (rawT >= 1) {
+        // Impact
         const spark = this.add.circle(toX, toY, 6, COLOR.archer, 0.8).setDepth(7);
         this.tweens.add({ targets: spark, scaleX: 2.5, scaleY: 2.5, alpha: 0, duration: 100, onComplete: () => spark.destroy() });
         arrow.destroy();
-      },
-    });
+        for (const d of trail) if (d.active) d.destroy();
+      }
+    };
+
+    // Use scene update event for frame-by-frame arc
+    const updateHandler = () => {
+      if (!arrow.active) {
+        this.events.off('update', updateHandler);
+        return;
+      }
+      onUpdate();
+    };
+    this.events.on('update', updateHandler);
   }
 
   private _updateArrows(): void {
-    // Arrows are tween-based, no manual update needed
+    // Arrows are event-driven, no manual update needed
   }
 
   // Debug visuals removed — clean battle presentation only
@@ -2853,46 +3256,192 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // DEBUG OVERLAY (world layer, scrollFactor=1)
+  // DEBUG OVERLAY
   // ═══════════════════════════════════════════════════════════════
 
-  private _drawDebugOverlay(): void {
-    const g = this.debugGraphics;
+  private _drawSquadDebug(): void {
+    const g = this.debugGfx;
+    const hud = this.debugHudGfx;
     g.clear();
+    hud.clear();
 
-    // Commander Aura circle
-    if (this.auraActive) {
-      g.lineStyle(1, 0x00ff88, 0.25);
-      g.strokeCircle(this.auraCenterX, this.auraCenterY, this.auraRadius);
-    }
+    const squadColor: Record<string, number> = {
+      vanguard: COLOR.vanguard,
+      archer: COLOR.archer,
+      cavalry: COLOR.cavalry,
+    };
 
-    // Archer range circle (centered on anchor)
-    g.lineStyle(1, 0x88aaff, 0.2);
-    g.strokeCircle(this.anchorPosA.x, this.anchorPosA.y, 420);
+    const counts = { vanguard: { total: 0, FORMING: 0, HOLD: 0, ENGAGE: 0 },
+                     archer:   { total: 0, FORMING: 0, HOLD: 0, ENGAGE: 0 },
+                     cavalry:  { total: 0, FORMING: 0, HOLD: 0, ENGAGE: 0 } };
 
-    // Target lines per unit (no slot dots)
+    const drawnEngageRadius = { vanguard: false, archer: false, cavalry: false };
+
     for (const u of this.armyUnits) {
       if (!u.active) continue;
-      if (u.lockedTarget && (u.lockedTarget as EnemyBase).active) {
-        const t = u.lockedTarget as EnemyBase;
-        if (u.squadType === 'archer') {
-          g.lineStyle(1, 0x4444ff, 0.15);
-          g.lineBetween(u.x, u.y, t.x, t.y);
-        } else if (u.squadType === 'cavalry' && u.isIntercepting) {
-          g.lineStyle(1, 0xff4444, 0.2);
-          g.lineBetween(u.x, u.y, t.x, t.y);
+      const sq = u.squadType;
+      const col = squadColor[sq];
+      counts[sq].total++;
+      counts[sq][u.state]++;
+
+      // 1. Slot marker (small X)
+      const sx = u.slotX, sy = u.slotY;
+      g.lineStyle(1, col, 0.4);
+      g.beginPath(); g.moveTo(sx - 4, sy - 4); g.lineTo(sx + 4, sy + 4); g.strokePath();
+      g.beginPath(); g.moveTo(sx + 4, sy - 4); g.lineTo(sx - 4, sy + 4); g.strokePath();
+
+      // 2. Unit → slot line
+      g.lineStyle(1, col, 0.15);
+      g.beginPath(); g.moveTo(u.x, u.y); g.lineTo(sx, sy); g.strokePath();
+
+      // 3. Target line
+      if (u.lockedTarget && (u.lockedTarget as Phaser.GameObjects.Components.Transform).x !== undefined) {
+        const t = u.lockedTarget as Phaser.GameObjects.Components.Transform;
+        g.lineStyle(2, col, 0.5);
+        g.beginPath(); g.moveTo(u.x, u.y); g.lineTo(t.x, t.y); g.strokePath();
+      }
+
+      // 4. State indicator below unit
+      const iy = u.y + 14;
+      if (u.state === 'FORMING') {
+        g.lineStyle(1, col, 0.6);
+        g.strokeCircle(u.x, iy, 4);
+      } else if (u.state === 'HOLD') {
+        g.lineStyle(1, col, 0.6);
+        g.strokeRect(u.x - 4, iy - 4, 8, 8);
+      } else if (u.state === 'ENGAGE') {
+        g.fillStyle(0xff4444, 0.7);
+        g.fillCircle(u.x, iy, 4);
+      }
+
+      // 5. Engage/return radius (one per squad)
+      if (!drawnEngageRadius[sq]) {
+        drawnEngageRadius[sq] = true;
+        // Engage radius — dotted via segmented arcs
+        g.lineStyle(1, col, 0.08);
+        const segs = 24;
+        for (let i = 0; i < segs; i += 2) {
+          const a0 = (i / segs) * Math.PI * 2;
+          const a1 = ((i + 1) / segs) * Math.PI * 2;
+          g.beginPath();
+          g.arc(u.slotX, u.slotY, u.engageRadius, a0, a1, false);
+          g.strokePath();
         }
+        // Return radius — solid
+        g.lineStyle(1, col, 0.05);
+        g.strokeCircle(u.slotX, u.slotY, u.returnRadius);
       }
     }
 
-    // faceDir debug line during reform
-    if (this.reformActive) {
-      g.lineStyle(2, 0x00ffaa, 0.4);
-      g.lineBetween(
-        this.player.x, this.player.y,
-        this.player.x + this.reformFrozenDirX * 200,
-        this.player.y + this.reformFrozenDirY * 200,
-      );
+    // 6. Anchor crosses
+    const crosses: Array<{ pos: { x: number; y: number }; col: number }> = [
+      { pos: this.anchorPosV, col: COLOR.vanguard },
+      { pos: this.anchorPosA, col: COLOR.archer },
+      { pos: this.anchorPosC, col: COLOR.cavalry },
+    ];
+    for (const { pos, col } of crosses) {
+      g.lineStyle(2, col, 0.6);
+      g.beginPath(); g.moveTo(pos.x - 12, pos.y); g.lineTo(pos.x + 12, pos.y); g.strokePath();
+      g.beginPath(); g.moveTo(pos.x, pos.y - 12); g.lineTo(pos.x, pos.y + 12); g.strokePath();
     }
+
+    // 7. Aura circle
+    if (this.auraActive) {
+      g.lineStyle(1, 0x00ff88, 0.2);
+      g.strokeCircle(this.auraCenterX, this.auraCenterY, this.auraRadius);
+    }
+
+    // 8. Archer range (420px)
+    const aLeader = this._getArcherLeader();
+    g.lineStyle(1, COLOR.archer, 0.12);
+    g.strokeCircle(aLeader.x, aLeader.y, 420);
+
+    // 9. Archer dead zone (120px)
+    g.lineStyle(1, 0xff4444, 0.12);
+    g.strokeCircle(aLeader.x, aLeader.y, CLOSE_RANGE);
+
+    // 10. Formation direction line
+    const dirLen = 180;
+    g.lineStyle(2, 0xffffff, 0.4);
+    g.beginPath();
+    g.moveTo(this.player.x, this.player.y);
+    g.lineTo(this.player.x + this.committedDirX * dirLen, this.player.y + this.committedDirY * dirLen);
+    g.strokePath();
+
+    // 11. Reform direction
+    if (this.reformActive) {
+      g.lineStyle(2, 0xffff00, 0.5);
+      g.beginPath();
+      g.moveTo(this.player.x, this.player.y);
+      g.lineTo(this.player.x + this.reformFrozenDirX * dirLen, this.player.y + this.reformFrozenDirY * dirLen);
+      g.strokePath();
+    }
+
+    // 12. Tactical mark pulsing ring
+    if (this.tacticalMarkTarget && this.tacticalMarkTarget.active) {
+      const t = this.tacticalMarkTarget;
+      const pulse = 18 + Math.sin(this.time.now * 0.006) * 6;
+      g.lineStyle(2, 0xff00ff, 0.5);
+      g.strokeCircle(t.x, t.y, pulse);
+    }
+
+    // 13. Cavalry cover centers (diamond marker) + intercept lines
+    for (const u of this.armyUnits) {
+      if (!u.active || u.squadType !== 'cavalry') continue;
+      // Cover center diamond
+      const ccx = u.coverX, ccy = u.coverY;
+      g.lineStyle(1, COLOR.cavalry, 0.5);
+      g.beginPath();
+      g.moveTo(ccx, ccy - 6); g.lineTo(ccx + 6, ccy);
+      g.lineTo(ccx, ccy + 6); g.lineTo(ccx - 6, ccy);
+      g.closePath(); g.strokePath();
+      // Intercept/egress target line
+      if ((u.cavPhase === 'intercept' || u.cavPhase === 'disrupt' || u.cavPhase === 'egress') && (u.cavTargetX !== 0 || u.cavTargetY !== 0)) {
+        g.lineStyle(1, 0xff8800, 0.4);
+        g.beginPath(); g.moveTo(u.x, u.y); g.lineTo(u.cavTargetX, u.cavTargetY); g.strokePath();
+        // Target dot
+        g.fillStyle(0xff8800, 0.6);
+        g.fillCircle(u.cavTargetX, u.cavTargetY, 3);
+      }
+      // Phase label
+      const lbl = u.cavPhase.charAt(0).toUpperCase();
+      g.fillStyle(COLOR.cavalry, 0.5);
+      g.fillCircle(u.x + 10, u.y - 10, 5);
+      // Use tiny text-like indicator: S=seek, I=intercept, D=disrupt, E=egress
+    }
+
+    // ── Screen-space text panel ──
+    const rules = this._buildRules();
+    const v = counts.vanguard, a = counts.archer, cv = counts.cavalry;
+    const markStr = this.tacticalMarkTarget && this.tacticalMarkTarget.active
+      ? `(${Math.round(this.tacticalMarkTarget.x)},${Math.round(this.tacticalMarkTarget.y)})`
+      : 'none';
+    const k5Str = (this.k5LastTarget && this.k5LastTarget.active)
+      ? `(${Math.round(this.k5LastTarget.x)},${Math.round(this.k5LastTarget.y)})`
+      : 'none';
+
+    const lines = [
+      '[F] Squad Debug',
+      '\u2500'.repeat(24),
+      `\uC120\uBD09  ${v.total}  FORM:${v.FORMING}  HOLD:${v.HOLD}  ENG:${v.ENGAGE}`,
+      `\uAD81\uBCD1  ${a.total}  FORM:${a.FORMING}  HOLD:${a.HOLD}  ENG:${a.ENGAGE}`,
+      `\uAE30\uBCD1  ${cv.total}  FORM:${cv.FORMING}  HOLD:${cv.HOLD}  ENG:${cv.ENGAGE}`,
+      '\u2500'.repeat(24),
+      `Reform: ${this.reformActive ? 'ON' : 'OFF'} | AtkOff: ${rules.armyAttackOff ? 'YES' : 'NO'} | ArchFire: ${rules.archerFireOff ? 'YES' : 'NO'}`,
+      `Volley: ${rules.isVolleyOpen ? 'OPEN' : 'LOCKED'} | SpeedMult: ${rules.speedMult.toFixed(2)}`,
+      `Mark: ${markStr} | K5: ${k5Str}`,
+      `Aura: ${this.auraActive ? 'ON' : 'OFF'} r=${this.auraRadius}`,
+      `Dir: (${this.committedDirX.toFixed(2)}, ${this.committedDirY.toFixed(2)})`,
+      // Cavalry phase breakdown
+      ...(() => {
+        const cavUnits = this.armyUnits.filter(u => u.active && u.squadType === 'cavalry');
+        if (cavUnits.length === 0) return [];
+        const phases = { seek_gap: 0, intercept: 0, disrupt: 0, egress: 0 };
+        for (const u of cavUnits) phases[u.cavPhase]++;
+        return [`CavPhase: S:${phases.seek_gap} I:${phases.intercept} D:${phases.disrupt} E:${phases.egress}`];
+      })(),
+    ];
+    this.debugText.setText(lines.join('\n'));
   }
+
 }

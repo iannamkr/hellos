@@ -40,8 +40,20 @@ export class ArmyUnit extends Phaser.Physics.Arcade.Image {
   // Returning to slot
   isReturning = false;
 
-  // Cavalry intercept state
-  isIntercepting = false;
+  // Cavalry gap-cover state machine
+  cavPhase: 'seek_gap' | 'intercept' | 'disrupt' | 'egress' = 'seek_gap';
+  cavPhaseTimer = 0;
+  cavGapIdx = 2;          // 현재 커버 중인 gap 인덱스
+  cavTargetX = 0;         // 현재 이동 목표
+  cavTargetY = 0;
+  cavLastGapCalc = 0;     // 마지막 gap 재계산 시각 (200ms 주기 제한)
+  cavDisruptHits = 0;     // disrupt 중 타격 횟수 (최대 2)
+  stableId = '';            // deterministic ID for load-balancing offset
+  cavGapLockUntil = 0;    // gap 변경 최소 유지시간 락
+  cavGapScore = Infinity;  // 현재 gap 점수(비교용)
+  cavSeenTargetSince = 0;  // intercept 진입 연속 감지 (0=미추적)
+  coverX = 0;              // gap 커버 중심 (오프셋 없음)
+  coverY = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: SquadType) {
     const tex = type === 'vanguard' ? 'unit_vanguard' : type === 'archer' ? 'unit_archer' : 'unit_cavalry';

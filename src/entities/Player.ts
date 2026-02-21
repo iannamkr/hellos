@@ -6,13 +6,15 @@ export class Player extends Phaser.Physics.Arcade.Image {
   maxHp = 5;
   speed = 220;
 
-  private dashSpeed = 480;
+  dashSpeed = 480;
   dashCooldown = 1400;
   dashDuration = 180;
   attackCooldown = 400;
   iframesDuration = 1200;
   dashGrantsInvincibility = true;
   extraDashIframes = 0;
+  reformCD = 2200;
+  reformThreshold = 220;
 
   private _isDashing = false;
   private _dashUntil = 0;
@@ -149,10 +151,10 @@ export class Player extends Phaser.Physics.Arcade.Image {
     // During hold: trigger reform at 220ms threshold
     if (shiftDown && this._shiftDownAt > 0 && !this._reformTriggeredThisHold) {
       const held = now - this._shiftDownAt;
-      if (held >= 220) {
+      if (held >= this.reformThreshold) {
         if (now >= this._nextReform && !this.dashDisabled) {
           this.reformTriggered = true;
-          this._nextReform = now + 2200;
+          this._nextReform = now + this.reformCD;
           this._reformTriggeredThisHold = true;
         } else if (now < this._nextReform) {
           this.reformOnCooldown = true;
@@ -170,7 +172,8 @@ export class Player extends Phaser.Physics.Arcade.Image {
           this._nextDash  = now + this.dashCooldown;
           this.dashActivatedThisFrame = true;
           this._dashStartPos = { x: this.x, y: this.y };
-          this.setVelocity(vx * this.dashSpeed, vy * this.dashSpeed);
+          const ds = this.dashSpeed;
+          this.setVelocity(vx * ds, vy * ds);
           this.setAlpha(0.5);
           this.scene.time.delayedCall(this.dashDuration, () => { if (this.active) this.setAlpha(1); });
           this._shiftWasDown = shiftDown;

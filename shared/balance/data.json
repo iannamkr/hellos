@@ -1,0 +1,43 @@
+{
+  "commander": {
+    "maxHp": 5,
+    "speed": 220,
+    "atkCD": 400,
+    "dashCD": 1400,
+    "dashDuration": 180,
+    "dashSpeed": 480,
+    "iframes": 1200,
+    "reformCD": 2200,
+    "reformThreshold": 220
+  },
+  "units": {
+    "vanguard": { "maxHp": 2, "dmg": 1, "atkCD": 650, "unitSpeed": 200, "range": 50, "engageRadius": 170, "returnRadius": 220 },
+    "archer": { "maxHp": 1, "dmg": 1, "atkCD": 900, "unitSpeed": 150, "range": 420, "engageRadius": 120, "returnRadius": 160 },
+    "cavalry": { "maxHp": 2, "dmg": 1, "atkCD": 775, "unitSpeed": 300, "range": 65, "engageRadius": 160, "returnRadius": 210 }
+  },
+  "enemies": {
+    "chaser": {
+      "maxHp": 2, "touchDmg": 1, "speed": 75,
+      "lineHoldDist": 350, "cohesionRadius": 140, "slotSpacing": 45, "lineHoldSpeedMult": 0.5
+    },
+    "dasher": {
+      "maxHp": 2, "touchDmg": 1, "speed": 95,
+      "dashWindup": 450, "dashSpeed": 550, "dashDuration": 280,
+      "disruptDuration": 900, "egressDuration": 1200, "egressSpeed": 95, "penetrationDist": 220
+    },
+    "buffer": {
+      "maxHp": 3, "touchDmg": 0, "speed": 48,
+      "auraRadius": 120, "auraSpeedBoost": 1.4
+    }
+  },
+  "game": {
+    "platoonSpawnInterval": 5000,
+    "platoonSizeChaser": 7,
+    "platoonSizeDasher": 5,
+    "platoonSizeBuffer": 5,
+    "volleyCycle": 900,
+    "volleyWindow": 120,
+    "commandAuraRadius": 260
+  },
+  "meta": { "version": 1 }
+}

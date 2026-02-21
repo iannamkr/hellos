@@ -3,7 +3,8 @@ import { EnemyBase } from './EnemyBase';
 import { COLOR } from '../colors';
 
 export class BufferEnemy extends EnemyBase {
-  private auraRadius = 120;
+  auraRadius = 120;
+  auraSpeedBoost = 1.4;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'enemy_buffer', 3, Phaser.Math.FloatBetween(40, 55));
@@ -15,7 +16,7 @@ export class BufferEnemy extends EnemyBase {
     for (const e of enemies) {
       if (e === this || !e.active) continue;
       if (Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y) <= this.auraRadius) {
-        e.speed = e.baseSpeed * 1.4;
+        e.speed = e.baseSpeed * this.auraSpeedBoost;
       }
     }
   }

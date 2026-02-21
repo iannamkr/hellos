@@ -14,6 +14,23 @@ export class Dasher extends EnemyBase {
   /** Set by GameScene for K4 Momentum Mode (1.0 = normal, 1.2 = 20% slower) */
   windupMultiplier = 1.0;
 
+  // Balance-driven properties (set by GameScene from balanceData)
+  dashWindup = 700;
+  dashSpd = 550;
+  dashDur = 280;
+  patrolDur = 2500;
+  flashInterval = 80;
+  telegraphLen = 200;
+  cooldownDur = 1200;
+
+  // Disrupt properties (set by GameScene)
+  disruptDuration = 900;
+  egressDuration = 1200;
+  egressSpd = 95;
+  penetrationDist = 220;
+  disruptHitCount = 0;
+  onDisruptHit: ((dasher: Dasher) => void) | null = null;
+
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'enemy_dasher', 2, 55);
     this.setTint(COLOR.enemyDasher);
@@ -42,13 +59,13 @@ export class Dasher extends EnemyBase {
 
     const dt = this.scene.game.loop.delta;
     this.stateTimer += dt;
-    const windupDuration = 700 * this.windupMultiplier;
+    const windupDuration = this.dashWindup * this.windupMultiplier;
 
     switch (this.state) {
       case 'patrol': {
         const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
         this.setVelocity(Math.cos(angle) * this.speed, Math.sin(angle) * this.speed);
-        if (this.stateTimer > 2500) {
+        if (this.stateTimer > this.patrolDur) {
           this.stateTimer = 0;
           this.state = 'windup';
           this.setVelocity(0, 0);
@@ -57,7 +74,7 @@ export class Dasher extends EnemyBase {
       }
       case 'windup': {
         // Flash + telegraph line
-        this.setAlpha(Math.floor(this.stateTimer / 80) % 2 === 0 ? 1 : 0.3);
+        this.setAlpha(Math.floor(this.stateTimer / this.flashInterval) % 2 === 0 ? 1 : 0.3);
 
         // Draw telegraph line toward player
         if (!this.telegraphLine) {
@@ -69,8 +86,8 @@ export class Dasher extends EnemyBase {
         this.telegraphLine.lineStyle(2, 0xff8800, 0.3 + 0.5 * progress);
         this.telegraphLine.lineBetween(
           this.x, this.y,
-          this.x + Math.cos(angle) * 200,
-          this.y + Math.sin(angle) * 200,
+          this.x + Math.cos(angle) * this.telegraphLen,
+          this.y + Math.sin(angle) * this.telegraphLen,
         );
 
         if (this.stateTimer > windupDuration) {
@@ -81,12 +98,12 @@ export class Dasher extends EnemyBase {
           const a = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
           this.dashDirX = Math.cos(a);
           this.dashDirY = Math.sin(a);
-          this.setVelocity(this.dashDirX * 550, this.dashDirY * 550);
+          this.setVelocity(this.dashDirX * this.dashSpd, this.dashDirY * this.dashSpd);
         }
         break;
       }
       case 'dashing': {
-        if (this.stateTimer > 280) {
+        if (this.stateTimer > this.dashDur) {
           this.stateTimer = 0;
           this.state = 'cooldown';
           this.setVelocity(0, 0);
@@ -94,7 +111,7 @@ export class Dasher extends EnemyBase {
         break;
       }
       case 'cooldown': {
-        if (this.stateTimer > 1200) {
+        if (this.stateTimer > this.cooldownDur) {
           this.stateTimer = 0;
           this.state = 'patrol';
         }

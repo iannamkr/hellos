@@ -3,24 +3,12 @@ import type { KeystoneId, SkillId, SupportId, ItemId, ClusterId, NodeId, BuildCo
 import { KEYSTONES, SKILLS, SUPPORTS, ITEMS, PRESETS, getKeystone, getSkill, getSupport, getItem } from '../data/buildData';
 import { CLUSTERS, getNode, getCluster, getBuildTags, isClusterActive, isNodeUnlocked, isMiniKeystoneAvailable } from '../data/treeData';
 
-// ── Layout (1920×1080, safe margin 48) ──
-const SAFE = 48;
-const GAP = 18;
-const DEPTH = 10000;
 const FONT = 'Courier New';
-const TPAD = { left: 6, top: 4, right: 6, bottom: 4 };
-const LSPC = 8;
+const D = 10000;
+const TABS = ['\ud504\ub9ac\uc14b', '\ube4c\ub4dc', '\ud2b8\ub9ac'] as const;
+type TabKey = typeof TABS[number];
 
-// Panel rects (offset from safe origin)
-const LP = { ox: 32, oy: 60, w: 980, h: 820 };
-const RP = { ox: 1040, oy: 60, w: 760, h: 820 };
-const BB = { ox: 32, oy: 910, w: 1760, h: 60 };
-const SB = { ox: 740, oy: 860, w: 360, h: 56 };
-
-// Section fixed heights (left panel)
-const SECT = [120, 120, 120, 150, 140]; // preset, keystone, skill, support, item
-
-function isPresetMatch(
+function presetMatch(
   p: typeof PRESETS[number], ks: KeystoneId, sk: SkillId, sups: SupportId[], it: ItemId,
 ): boolean {
   return p.build.keystone === ks && p.build.skill === sk &&
@@ -36,198 +24,267 @@ export class BuildScene extends Phaser.Scene {
   private selectedClusters: ClusterId[] = [];
   private selectedNodes: NodeId[] = [];
 
-  // ── UI hierarchy ──
-  private root!: Phaser.GameObjects.Container;
-  private lp!: Phaser.GameObjects.Container; // left panel
-  private rp!: Phaser.GameObjects.Container; // right panel
-  private barText!: Phaser.GameObjects.Text;
-  private maskGfx: Phaser.GameObjects.Graphics[] = [];
+  // ── UI ──
+  private activeTab: TabKey = '\ud504\ub9ac\uc14b';
+  private content!: Phaser.GameObjects.Container;
+  private summary!: Phaser.GameObjects.Container;
+  private tabBtns: Phaser.GameObjects.Text[] = [];
+  private desc!: Phaser.GameObjects.Text;
 
   constructor() { super({ key: 'BuildScene' }); }
 
   create(): void {
-    // ── 1. Nuke previous ──
-    for (const g of this.maskGfx) g.destroy();
-    this.maskGfx = [];
     this.children.removeAll(true);
+    const W = this.scale.width;
+    const H = this.scale.height;
 
-    const W = this.cameras.main.width;
-    const H = this.cameras.main.height;
-    const sx = SAFE, sy = SAFE;
+    this.add.rectangle(W / 2, H / 2, W, H, 0x0a0a0a).setDepth(D);
 
-    // ── 2. Root container ──
-    this.root = this.add.container(0, 0).setDepth(DEPTH).setScrollFactor(0);
+    this.add.text(W / 2, 28, 'BUILD', {
+      fontSize: '44px', color: '#cccccc', fontFamily: FONT,
+      padding: { top: 12, bottom: 2 },
+    }).setOrigin(0.5, 0).setDepth(D);
 
-    // Background
-    this.root.add(this.add.rectangle(W / 2, H / 2, W, H, 0x0a0a0a));
+    // ── Layout ──
+    const LX = 48, LW = 1060;
+    const RX = 1140, RW = 732;
+    const TAB_Y = 88;
+    const CY = 138, CB = H - 168, CH = CB - CY;
+    const DY = CB + 10;
+    const SY = DY + 66;
 
-    // Title
-    this.root.add(this.add.text(W / 2, sy, 'BUILD', {
-      fontSize: '42px', color: '#cccccc', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-    }).setOrigin(0.5, 0));
+    // ── Tabs ──
+    const tw = Math.floor(LW / TABS.length);
+    this.tabBtns = [];
+    for (let i = 0; i < TABS.length; i++) {
+      const btn = this.add.text(LX + i * tw + tw / 2, TAB_Y, TABS[i], {
+        fontSize: '24px', color: '#666666', fontFamily: FONT,
+        backgroundColor: '#111111', padding: { x: 20, y: 8 },
+      }).setOrigin(0.5, 0).setDepth(D).setInteractive({ useHandCursor: true });
+      const key = TABS[i];
+      btn.on('pointerdown', () => { this.activeTab = key; this._refresh(); });
+      this.tabBtns.push(btn);
+    }
 
-    // ── 3. Panel backgrounds (behind containers) ──
-    const lx = sx + LP.ox, ly = sy + LP.oy;
-    const rx = sx + RP.ox, ry = sy + RP.oy;
-    const bx = sx + BB.ox, by = sy + BB.oy;
-    this.root.add(this.add.rectangle(lx + LP.w / 2, ly + LP.h / 2, LP.w, LP.h, 0x111111, 0.85));
-    this.root.add(this.add.rectangle(rx + RP.w / 2, ry + RP.h / 2, RP.w, RP.h, 0x111111, 0.85));
+    // ── Left panel ──
+    this.add.rectangle(LX + LW / 2, CY + CH / 2, LW, CH, 0x111111, 0.85).setDepth(D);
+    this.content = this.add.container(LX, CY).setDepth(D + 1);
+    const cm = this.make.graphics({ add: false } as any);
+    cm.fillStyle(0xffffff).fillRect(LX, CY, LW, CH);
+    this.content.setMask(cm.createGeometryMask());
 
-    // ── 4. Left panel + mask ──
-    this.lp = this.add.container(lx, ly);
-    const lmg = this.make.graphics({ add: false });
-    lmg.fillStyle(0xffffff).fillRect(lx, ly, LP.w, LP.h);
-    this.lp.setMask(lmg.createGeometryMask());
-    this.maskGfx.push(lmg);
-    this.root.add(this.lp);
+    // ── Right panel ──
+    this.add.rectangle(RX + RW / 2, CY + CH / 2, RW, CH, 0x111111, 0.85).setDepth(D);
+    this.summary = this.add.container(RX, CY).setDepth(D + 1);
+    const sm = this.make.graphics({ add: false } as any);
+    sm.fillStyle(0xffffff).fillRect(RX, CY, RW, CH);
+    this.summary.setMask(sm.createGeometryMask());
 
-    // ── 5. Right panel + mask ──
-    this.rp = this.add.container(rx, ry);
-    const rmg = this.make.graphics({ add: false });
-    rmg.fillStyle(0xffffff).fillRect(rx, ry, RP.w, RP.h);
-    this.rp.setMask(rmg.createGeometryMask());
-    this.maskGfx.push(rmg);
-    this.root.add(this.rp);
+    // ── Description bar ──
+    const fullW = RX + RW - LX;
+    this.add.rectangle(LX + fullW / 2, DY + 26, fullW, 52, 0x111111).setDepth(D);
+    this.desc = this.add.text(LX + 16, DY + 8, this._hint(), {
+      fontSize: '18px', color: '#555555', fontFamily: FONT,
+      wordWrap: { width: fullW - 32 },
+      padding: { top: 6, bottom: 2 },
+    }).setDepth(D + 1);
 
-    // ── 6. Bottom bar + mask ──
-    const bar = this.add.container(bx, by);
-    bar.add(this.add.rectangle(BB.w / 2, BB.h / 2, BB.w, BB.h, 0x111111));
-    this.barText = this.add.text(24, (BB.h - 24) / 2, this._barDefault(), {
-      fontSize: '16px', color: '#555555', fontFamily: FONT,
-      padding: TPAD, lineSpacing: LSPC, fixedWidth: BB.w - 48,
-    }).setOrigin(0, 0);
-    bar.add(this.barText);
-    const bmg = this.make.graphics({ add: false });
-    bmg.fillStyle(0xffffff).fillRect(bx, by, BB.w, BB.h);
-    bar.setMask(bmg.createGeometryMask());
-    this.maskGfx.push(bmg);
-    this.root.add(bar);
+    // ── Start button ──
+    const sb = this.add.text(W / 2, SY, 'START', {
+      fontSize: '34px', color: '#00ff88', fontFamily: FONT,
+      backgroundColor: 'transparent', padding: { left: 32, right: 32, top: 10, bottom: 6 },
+    }).setOrigin(0.5, 0).setDepth(D + 1).setInteractive({ useHandCursor: true });
+    sb.on('pointerdown', () => this._start());
+    sb.on('pointerover', () => sb.setColor('#ffffff'));
+    sb.on('pointerout', () => sb.setColor('#00ff88'));
 
-    // ── 7. Start button ──
-    const sbx = sx + SB.ox, sby = sy + SB.oy;
-    const sbc = this.add.container(sbx + SB.w / 2, sby + SB.h / 2);
-    sbc.add(this.add.rectangle(0, 0, SB.w, SB.h, 0x1a1a1a));
-    const sbTxt = this.add.text(0, 0, '>> 시작', {
-      fontSize: '36px', color: '#00ff88', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-    }).setOrigin(0.5);
-    sbc.add(sbTxt);
-    sbc.setSize(SB.w, SB.h).setInteractive({ useHandCursor: true });
-    sbc.on('pointerdown', () => this._startGame());
-    sbc.on('pointerover', () => sbTxt.setColor('#ffffff'));
-    sbc.on('pointerout', () => sbTxt.setColor('#00ff88'));
-    this.root.add(sbc);
+    this._refresh();
+  }
 
-    // ── 8. Populate panels ──
-    this._fillLeft();
-    this._fillRight();
+  // ═══════════════════════════════════════════════════════════════
+  // REFRESH
+  // ═══════════════════════════════════════════════════════════════
 
-    // ── 9. Orphan scan ──
-    for (const c of [...this.children.list]) {
-      if (c !== this.root) c.destroy();
+  private _refresh(): void {
+    for (let i = 0; i < TABS.length; i++) {
+      const on = TABS[i] === this.activeTab;
+      this.tabBtns[i].setColor(on ? '#ffaa00' : '#666666');
+      this.tabBtns[i].setBackgroundColor(on ? '#1a1a00' : '#111111');
+    }
+    this.content.removeAll(true);
+    switch (this.activeTab) {
+      case '\ud504\ub9ac\uc14b': this._tabPreset(); break;
+      case '\ube4c\ub4dc': this._tabBuild(); break;
+      case '\ud2b8\ub9ac': this._tabTree(); break;
+    }
+    this._fillSummary();
+    this._resetDesc();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // TAB: 프리셋
+  // ═══════════════════════════════════════════════════════════════
+
+  private _tabPreset(): void {
+    let y = 20;
+    this._hdr(20, y, '\ud504\ub9ac\uc14b \uc120\ud0dd');
+    y += 36;
+    for (const pr of PRESETS) {
+      const sel = presetMatch(pr, this.selectedKeystone, this.selectedSkill, this.selectedSupports, this.selectedItem);
+      const c = sel ? '#ffaa00' : '#888888';
+      const t = this._li(20, y, `${sel ? '\u25b6' : '  '} ${pr.label}`, c);
+      this._sub(48, y + 30, pr.desc);
+      t.on('pointerdown', () => {
+        this.selectedKeystone = pr.build.keystone;
+        this.selectedSkill = pr.build.skill;
+        this.selectedSupports = [...pr.build.supports];
+        this.selectedItem = pr.build.item;
+        this.selectedClusters = []; this.selectedNodes = [];
+        this._refresh();
+      });
+      t.on('pointerover', () => { t.setColor('#ffffff'); this._setDesc(`${pr.label}: ${pr.desc}`); });
+      t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
+      y += 56;
     }
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // LEFT PANEL
+  // TAB: 빌드 (키스톤 + 스킬 + 서포트 + 아이템)
   // ═══════════════════════════════════════════════════════════════
 
-  private _fillLeft(): void {
-    this.lp.removeAll(true);
+  private _tabBuild(): void {
     const tags = this._tags();
-    const P = 24;
-    const fw = LP.w - 2 * P;
-    const col = Math.floor(fw / 2);
+    const P = 20;
+    const col = 490; // column width
+    let y = P;
 
-    // Section y starts (local to panel)
-    let sy = P;
-    const s: number[] = [sy];
-    for (let i = 0; i < SECT.length - 1; i++) { sy += SECT[i] + GAP; s.push(sy); }
-    const treeY = sy + SECT[SECT.length - 1] + GAP;
-
-    // ── PRESETS ──
-    let y = s[0];
-    this._lhdr(P, y, '프리셋');
+    // ── 키스톤 (2-col) ──
+    this._hdr(P, y, '\ud0a4\uc2a4\ud1a4');
     y += 32;
-    for (let i = 0; i < PRESETS.length; i++) {
-      const pr = PRESETS[i];
-      const sel = isPresetMatch(pr, this.selectedKeystone, this.selectedSkill, this.selectedSupports, this.selectedItem);
-      const c = sel ? '#ffaa00' : '#666666';
-      const b = this._lbtn(P + (i % 2) * col, y + Math.floor(i / 2) * 28,
-        `${sel ? '▶' : '  '} ${pr.label}`, c, col);
-      b.on('pointerdown', () => {
-        if (sel) return;
-        this.selectedKeystone = pr.build.keystone; this.selectedSkill = pr.build.skill;
-        this.selectedSupports = [...pr.build.supports]; this.selectedItem = pr.build.item;
-        this.selectedClusters = []; this.selectedNodes = [];
-        this._fillLeft(); this._fillRight();
-      });
-      b.on('pointerover', () => { b.setColor('#ffffff'); this._bar(pr.desc); });
-      b.on('pointerout', () => { b.setColor(c); this._barReset(); });
+    for (let i = 0; i < KEYSTONES.length; i++) {
+      const ks = KEYSTONES[i];
+      const sel = ks.id === this.selectedKeystone;
+      const c = sel ? '#ffaa00' : '#888888';
+      const cx = P + (i % 2) * col;
+      const cy = y + Math.floor(i / 2) * 30;
+      const t = this._li(cx, cy, `${sel ? '\u25b6' : '  '} ${ks.label}`, c);
+      t.on('pointerdown', () => { this.selectedKeystone = ks.id; this._prune(); this._refresh(); });
+      t.on('pointerover', () => { t.setColor('#ffffff'); this._setDesc(`${ks.penalty} / ${ks.benefit} \xb7 \uad50\ub9ac: ${ks.armyRule}`); });
+      t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
     }
+    y += Math.ceil(KEYSTONES.length / 2) * 30 + 16;
 
-    // ── KEYSTONE ──
-    y = s[1]; this._lhdr(P, y, '키스톤'); y += 32;
-    this._grid1(P, y, KEYSTONES, this.selectedKeystone, col,
-      id => { this.selectedKeystone = id as KeystoneId; this._prune(); this._fillLeft(); this._fillRight(); },
-      i => `${(i as any).penalty} / ${(i as any).benefit}`);
-
-    // ── SKILL ──
-    y = s[2]; this._lhdr(P, y, '스킬'); y += 32;
-    this._grid1(P, y, SKILLS, this.selectedSkill, col,
-      id => { this.selectedSkill = id as SkillId; this._prune(); this._fillLeft(); this._fillRight(); },
-      i => (i as any).desc);
-
-    // ── SUPPORTS ──
-    y = s[3]; this._lhdr(P, y, '서포트', '2개 선택'); y += 32;
-    this._gridN(P, y, SUPPORTS, this.selectedSupports, 2, col,
-      ids => { this.selectedSupports = ids as SupportId[]; this._prune(); this._fillLeft(); this._fillRight(); },
-      i => (i as any).desc);
-
-    // ── ITEM ──
-    y = s[4]; this._lhdr(P, y, '아이템'); y += 32;
-    this._grid1(P, y, ITEMS, this.selectedItem, col,
-      id => { this.selectedItem = id as ItemId; this._prune(); this._fillLeft(); this._fillRight(); },
-      i => `${(i as any).penalty} / ${(i as any).benefit}`);
-
-    // ── PASSIVE TREE ──
-    y = treeY;
-    const c0L = this.selectedClusters[0] ? `${getCluster(this.selectedClusters[0]).label}(${this.selectedNodes.filter(n => getNode(n).cluster === this.selectedClusters[0]).length}/4)` : '';
-    const c1L = this.selectedClusters[1] ? `${getCluster(this.selectedClusters[1]).label}(${this.selectedNodes.filter(n => getNode(n).cluster === this.selectedClusters[1]).length}/4)` : '';
-    this._lhdr(P, y, `패시브 트리  ${[c0L, c1L].filter(Boolean).join('  ') || '미선택'}`, 'cls 2, 0~4');
+    // ── 스킬 (2-col) ──
+    this._hdr(P, y, '\uc2a4\ud0ac');
     y += 32;
+    for (let i = 0; i < SKILLS.length; i++) {
+      const sk = SKILLS[i];
+      const sel = sk.id === this.selectedSkill;
+      const c = sel ? '#ffaa00' : '#888888';
+      const cx = P + (i % 2) * col;
+      const cy = y + Math.floor(i / 2) * 30;
+      const t = this._li(cx, cy, `${sel ? '\u25b6' : '  '} ${sk.label}`, c);
+      t.on('pointerdown', () => { this.selectedSkill = sk.id; this._prune(); this._refresh(); });
+      t.on('pointerover', () => { t.setColor('#ffffff'); this._setDesc(sk.desc); });
+      t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
+    }
+    y += Math.ceil(SKILLS.length / 2) * 30 + 16;
 
-    // Cluster bar
-    const cw = 145;
+    // ── 서포트 (2-col, max 2) ──
+    this._hdr(P, y, `\uc11c\ud3ec\ud2b8 (${this.selectedSupports.length}/2)`);
+    y += 32;
+    for (let i = 0; i < SUPPORTS.length; i++) {
+      const sp = SUPPORTS[i];
+      const sel = this.selectedSupports.includes(sp.id);
+      const avail = sp.requiredTags.every(t => tags.includes(t));
+      const can = sel || (this.selectedSupports.length < 2 && avail);
+      let c = '#888888';
+      if (!avail) c = '#444444';
+      else if (sel) c = '#ffaa00';
+      else if (!can) c = '#555555';
+
+      const cx = P + (i % 2) * col;
+      const cy = y + Math.floor(i / 2) * 30;
+      const t = this._li(cx, cy, `${sel ? '\u25b6' : '  '} ${sp.label}${!avail ? ' \u00d7' : ''}`, c, can || sel);
+      if (can || sel) {
+        t.on('pointerdown', () => {
+          if (sel) this.selectedSupports = this.selectedSupports.filter(s => s !== sp.id);
+          else this.selectedSupports.push(sp.id);
+          this._prune(); this._refresh();
+        });
+      }
+      t.on('pointerover', () => {
+        if (can || sel) t.setColor('#ffffff');
+        this._setDesc(`${sp.desc} \xb7 \uad70\ub2e8: ${sp.armyRule}${!avail ? ` (\ud544\uc694: ${sp.requiredTags.join(',')})` : ''}`);
+      });
+      t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
+    }
+    y += Math.ceil(SUPPORTS.length / 2) * 30 + 16;
+
+    // ── 아이템 (2-col) ──
+    this._hdr(P, y, '\uc544\uc774\ud15c');
+    y += 32;
+    for (let i = 0; i < ITEMS.length; i++) {
+      const it = ITEMS[i];
+      const sel = it.id === this.selectedItem;
+      const c = sel ? '#ffaa00' : '#888888';
+      const cx = P + (i % 2) * col;
+      const cy = y + Math.floor(i / 2) * 30;
+      const t = this._li(cx, cy, `${sel ? '\u25b6' : '  '} ${it.label}`, c);
+      t.on('pointerdown', () => { this.selectedItem = it.id; this._prune(); this._refresh(); });
+      t.on('pointerover', () => { t.setColor('#ffffff'); this._setDesc(`${it.penalty} / ${it.benefit} \xb7 \uad70\ub2e8: ${it.armyRule}`); });
+      t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // TAB: 트리 (클러스터 + 노드)
+  // ═══════════════════════════════════════════════════════════════
+
+  private _tabTree(): void {
+    const tags = this._tags();
+    const P = 20;
+    let y = P;
+
+    // Cluster selection (3-col, 2 rows)
+    this._hdr(P, y, `\ud074\ub7ec\uc2a4\ud130 (${this.selectedClusters.length}/2)`);
+    y += 34;
+    const cw = 165;
     for (let i = 0; i < CLUSTERS.length; i++) {
       const cl = CLUSTERS[i];
       const act = isClusterActive(cl.id, tags);
       const sel = this.selectedClusters.includes(cl.id);
       const can = act && (sel || this.selectedClusters.length < 2);
       const c = !act ? '#333333' : sel ? '#ffaa00' : '#888888';
-      const b = this._lbtn(P + i * cw, y, `${sel ? '▶' : '  '}${cl.id}:${cl.label}`, c, cw, can);
+      const cx = P + (i % 3) * cw;
+      const cy = y + Math.floor(i / 3) * 36;
+      const t = this._li(cx, cy, `${sel ? '\u25b6' : '  '} ${cl.id}:${cl.label}`, c, can);
       if (can) {
-        b.on('pointerdown', () => {
-          if (sel) { this.selectedClusters = this.selectedClusters.filter(x => x !== cl.id); this.selectedNodes = this.selectedNodes.filter(n => getNode(n).cluster !== cl.id); }
-          else this.selectedClusters.push(cl.id);
-          this._fillLeft(); this._fillRight();
+        t.on('pointerdown', () => {
+          if (sel) {
+            this.selectedClusters = this.selectedClusters.filter(x => x !== cl.id);
+            this.selectedNodes = this.selectedNodes.filter(n => getNode(n).cluster !== cl.id);
+          } else this.selectedClusters.push(cl.id);
+          this._refresh();
         });
-        b.on('pointerover', () => { b.setColor('#ffffff'); this._bar(`${cl.label}(${cl.labelEn})`); });
-        b.on('pointerout', () => { b.setColor(c); this._barReset(); });
+        t.on('pointerover', () => { t.setColor('#ffffff'); this._setDesc(`${cl.label}(${cl.labelEn}): \ud65c\uc131 \ud0dc\uadf8 ${cl.activationTags.join(', ')}`); });
+        t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
       }
     }
+    y += 80;
+
+    // Current tags (reference)
+    this._sub(P, y, `\ud604\uc7ac \ud0dc\uadf8: ${tags.join(', ')}`);
     y += 28;
 
-    // Node lists
+    // Nodes per cluster
     for (const cId of this.selectedClusters) {
       const cl = getCluster(cId);
       const nodesIn = this.selectedNodes.filter(n => getNode(n).cluster === cId);
       const nonKs = nodesIn.filter(n => !getNode(n).isMiniKeystone).length;
 
-      const hdr = this.add.text(P, y, `── ${cl.label}(${cl.labelEn}) ──`, {
-        fontSize: '20px', color: '#ffaa00', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-      }).setOrigin(0, 0);
-      this.lp.add(hdr);
-      y += 28;
+      this._hdr(P, y, `\u2500\u2500 ${cl.label}(${cl.labelEn}) ${nodesIn.length}/4 \u2500\u2500`);
+      y += 34;
 
       for (const nId of cl.nodes) {
         const nd = getNode(nId);
@@ -238,16 +295,16 @@ export class BuildScene extends Phaser.Scene {
         const tlim = !sel && nodesIn.length >= 4;
         const can = ok && ksOk && !lim && !tlim;
 
-        let c = '#888888'; let reason = '';
+        let c = '#888888', reason = '';
         if (!ok) { c = '#333333'; reason = ` (${nd.requiredTags.join(',')})`; }
-        else if (!ksOk) { c = '#555555'; reason = ' (3노드)'; }
-        else if (lim || tlim) { c = '#555555'; reason = ' (상한)'; }
-        else if (sel) { c = '#ffaa00'; }
+        else if (!ksOk) { c = '#555555'; reason = ' (3\ub178\ub4dc)'; }
+        else if (lim || tlim) { c = '#555555'; reason = ' (\uc0c1\ud55c)'; }
+        else if (sel) c = '#ffaa00';
 
-        const ico = nd.isMiniKeystone ? '★' : nd.type === 'ban' ? 'B' : nd.type === 'convert' ? 'C' : 'R';
-        const b = this._lbtn(P, y, `${sel ? '▶' : '  '} ${ico} ${nd.label}${reason}`, c, fw, can || sel);
+        const ico = nd.isMiniKeystone ? '\u2605' : nd.type === 'ban' ? 'B' : nd.type === 'convert' ? 'C' : 'R';
+        const t = this._li(P, y, `${sel ? '\u25b6' : '  '} ${ico} ${nd.label}${reason}`, c, can || sel);
         if (can || sel) {
-          b.on('pointerdown', () => {
+          t.on('pointerdown', () => {
             if (sel) {
               this.selectedNodes = this.selectedNodes.filter(n => n !== nId);
               if (!nd.isMiniKeystone) {
@@ -256,100 +313,83 @@ export class BuildScene extends Phaser.Scene {
                   this.selectedNodes = this.selectedNodes.filter(n => n !== ksN);
               }
             } else this.selectedNodes.push(nId);
-            this._fillLeft(); this._fillRight();
+            this._refresh();
           });
-          b.on('pointerover', () => { b.setColor('#ffffff'); this._bar(`${nd.ban} → ${nd.liberation}`); });
-          b.on('pointerout', () => { b.setColor(c); this._barReset(); });
         }
-        y += 26;
+        t.on('pointerover', () => {
+          if (can || sel) t.setColor('#ffffff');
+          this._setDesc(`\uae08: ${nd.ban} \u2192 \ubc29: ${nd.liberation}`);
+        });
+        t.on('pointerout', () => { t.setColor(c); this._resetDesc(); });
+        y += 34;
       }
-      y += 6;
+      y += 12;
     }
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // RIGHT PANEL
+  // RIGHT PANEL — SUMMARY
   // ═══════════════════════════════════════════════════════════════
 
-  private _fillRight(): void {
-    this.rp.removeAll(true);
-    const P = 24;
-    const fw = RP.w - 2 * P;
+  private _fillSummary(): void {
+    this.summary.removeAll(true);
+    const P = 20, fw = 692;
     let y = P;
 
-    // Title
-    this.rp.add(this.add.text(P, y, '빌드 요약', {
-      fontSize: '24px', color: '#ffaa00', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-    }).setOrigin(0, 0));
-    y += 36;
+    this._st(P, y, '\ube4c\ub4dc \uc694\uc57d', '#ffaa00', '24px');
+    y += 40;
 
-    // Summary (8 lines, 240px block)
     const ks = getKeystone(this.selectedKeystone);
     const sk = getSkill(this.selectedSkill);
-    const s0 = getSupport(this.selectedSupports[0]);
-    const s1 = getSupport(this.selectedSupports[1]);
+    const s0 = this.selectedSupports[0] ? getSupport(this.selectedSupports[0]) : null;
+    const s1 = this.selectedSupports[1] ? getSupport(this.selectedSupports[1]) : null;
     const it = getItem(this.selectedItem);
-    const c0 = this.selectedClusters[0] ? getCluster(this.selectedClusters[0]) : null;
-    const c1 = this.selectedClusters[1] ? getCluster(this.selectedClusters[1]) : null;
-    const c0N = c0 ? this.selectedNodes.filter(n => getNode(n).cluster === c0.id).length : 0;
-    const c1N = c1 ? this.selectedNodes.filter(n => getNode(n).cluster === c1.id).length : 0;
+    const supLabel = [s0?.label, s1?.label].filter(Boolean).join(' + ') || '\ubbf8\uc120\ud0dd';
 
-    for (const line of [
-      `키스톤: ${ks.label}`, `스킬: ${sk.label} (${sk.desc})`,
-      `서포트: ${s0.label} + ${s1.label}`, `아이템: ${it.label}`,
-      `트리1: ${c0 ? `${c0.label}(${c0N})` : '미선택'}`, `트리2: ${c1 ? `${c1.label}(${c1N})` : '미선택'}`,
-      `교리: ${ks.armyRule}`, `입력: WASD/클릭/Shift 대시·Reform`,
-    ]) {
-      this.rp.add(this.add.text(P, y, line, {
-        fontSize: '18px', color: '#aaaaaa', fontFamily: FONT,
-        padding: TPAD, lineSpacing: LSPC, wordWrap: { width: fw }, fixedWidth: fw,
-      }).setOrigin(0, 0));
-      y += 24;
+    for (const [label, value] of [
+      ['\ud0a4\uc2a4\ud1a4', ks.label],
+      ['\uc2a4\ud0ac', `${sk.label} (${sk.desc})`],
+      ['\uc11c\ud3ec\ud2b8', supLabel],
+      ['\uc544\uc774\ud15c', it.label],
+    ] as const) {
+      this._st(P, y, `${label}: ${value}`, '#aaaaaa', '20px', fw);
+      y += 28;
     }
-    y = P + 36 + 240; // fixed block
 
-    // Ban/Liberation (90px block)
+    y += 8;
+    for (let i = 0; i < 2; i++) {
+      const cId = this.selectedClusters[i];
+      const cl = cId ? getCluster(cId) : null;
+      const cnt = cl ? this.selectedNodes.filter(n => getNode(n).cluster === cl.id).length : 0;
+      this._st(P, y, `\ud2b8\ub9ac${i + 1}: ${cl ? `${cl.label}(${cnt})` : '\ubbf8\uc120\ud0dd'}`, '#888888', '20px', fw);
+      y += 28;
+    }
+
+    y += 8;
+    this._st(P, y, `\uad50\ub9ac: ${ks.armyRule}`, '#888888', '18px', fw);
+    y += 24;
+    this._st(P, y, '\uc785\ub825: WASD/\ud074\ub9ad/Shift \ub300\uc2dc\xb7Reform', '#666666', '18px', fw);
+    y += 36;
+
     const { topBan, topLib } = this._topBanLib();
-    this.rp.add(this.add.text(P, y, `금지: ${topBan}`, {
-      fontSize: '18px', color: '#ff6666', fontFamily: FONT,
-      padding: TPAD, lineSpacing: LSPC, wordWrap: { width: fw }, fixedWidth: fw,
-    }).setOrigin(0, 0));
-    y += 28;
-    this.rp.add(this.add.text(P, y, `해방: ${topLib}`, {
-      fontSize: '18px', color: '#66ff88', fontFamily: FONT,
-      padding: TPAD, lineSpacing: LSPC, wordWrap: { width: fw }, fixedWidth: fw,
-    }).setOrigin(0, 0));
-    y = P + 36 + 240 + 90; // fixed block
+    this._st(P, y, `\uae08\uc9c0: ${topBan}`, '#ff6666', '18px', fw);
+    y += 26;
+    this._st(P, y, `\ud574\ubc29: ${topLib}`, '#66ff88', '18px', fw);
+    y += 36;
 
-    // Tags (2 lines, mask clips)
-    this.rp.add(this.add.text(P, y, `태그: ${this._tags().join(', ')}`, {
-      fontSize: '16px', color: '#555555', fontFamily: FONT,
-      padding: TPAD, lineSpacing: LSPC, wordWrap: { width: fw }, fixedWidth: fw,
-    }).setOrigin(0, 0));
-    y += 50;
+    this._st(P, y, `\ud0dc\uadf8: ${this._tags().join(', ')}`, '#555555', '16px', fw);
+    y += 36;
 
-    // Full ban/lib from nodes
     if (this.selectedNodes.length > 0) {
-      this.rp.add(this.add.text(P, y, '── 전체 금지/해방 ──', {
-        fontSize: '18px', color: '#888888', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-      }).setOrigin(0, 0));
+      this._st(P, y, '\u2500\u2500 \uc120\ud0dd \ub178\ub4dc \u2500\u2500', '#888888', '18px');
       y += 28;
       for (const nId of this.selectedNodes) {
         const nd = getNode(nId);
-        this.rp.add(this.add.text(P, y, `${nd.isMiniKeystone ? '★' : '-'} ${nd.label}`, {
-          fontSize: '16px', color: '#aaaaaa', fontFamily: FONT,
-          padding: TPAD, lineSpacing: LSPC, fixedWidth: fw,
-        }).setOrigin(0, 0));
+        this._st(P, y, `${nd.isMiniKeystone ? '\u2605' : '-'} ${nd.label}`, '#aaaaaa', '16px', fw);
         y += 22;
-        this.rp.add(this.add.text(P + 12, y, `금: ${nd.ban}`, {
-          fontSize: '16px', color: '#884444', fontFamily: FONT,
-          padding: TPAD, lineSpacing: LSPC, wordWrap: { width: fw - 12 }, fixedWidth: fw - 12,
-        }).setOrigin(0, 0));
+        this._st(P + 12, y, `\uae08: ${nd.ban}`, '#884444', '16px', fw - 12);
         y += 22;
-        this.rp.add(this.add.text(P + 12, y, `방: ${nd.liberation}`, {
-          fontSize: '16px', color: '#448844', fontFamily: FONT,
-          padding: TPAD, lineSpacing: LSPC, wordWrap: { width: fw - 12 }, fixedWidth: fw - 12,
-        }).setOrigin(0, 0));
+        this._st(P + 12, y, `\ubc29: ${nd.liberation}`, '#448844', '16px', fw - 12);
         y += 24;
       }
     }
@@ -359,62 +399,43 @@ export class BuildScene extends Phaser.Scene {
   // HELPERS
   // ═══════════════════════════════════════════════════════════════
 
-  private _lhdr(x: number, y: number, title: string, hint?: string): void {
-    const t = this.add.text(x, y, title, {
-      fontSize: '24px', color: '#888888', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-    }).setOrigin(0, 0);
-    this.lp.add(t);
-    if (hint) {
-      const h = this.add.text(x + t.width + 12, y + 4, hint, {
-        fontSize: '16px', color: '#555555', fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-      }).setOrigin(0, 0);
-      this.lp.add(h);
-    }
-  }
-
-  private _lbtn(x: number, y: number, text: string, color: string, w: number, interactive = true): Phaser.GameObjects.Text {
+  private _li(x: number, y: number, text: string, color: string, interactive = true): Phaser.GameObjects.Text {
     const t = this.add.text(x, y, text, {
-      fontSize: '20px', color, fontFamily: FONT, padding: TPAD, lineSpacing: LSPC,
-      backgroundColor: color === '#ffaa00' ? '#1a1a00' : undefined, fixedWidth: w,
+      fontSize: '22px', color, fontFamily: FONT,
+      backgroundColor: color === '#ffaa00' ? '#1a1a00' : undefined,
+      padding: { left: 8, right: 8, top: 6, bottom: 2 },
     }).setOrigin(0, 0);
     if (interactive) t.setInteractive({ useHandCursor: true });
-    this.lp.add(t);
+    this.content.add(t);
     return t;
   }
 
-  private _grid1(x0: number, y: number, items: { id: string; label: string }[],
-    sel: string, cw: number, onSel: (id: string) => void, desc: (i: any) => string,
-  ): void {
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]; const isSel = it.id === sel;
-      const c = isSel ? '#ffaa00' : '#666666';
-      const b = this._lbtn(x0 + (i % 2) * cw, y + Math.floor(i / 2) * 28,
-        `${isSel ? '▶' : '  '} ${it.label}`, c, cw);
-      b.on('pointerdown', () => onSel(it.id));
-      b.on('pointerover', () => { b.setColor('#ffffff'); this._bar(desc(it)); });
-      b.on('pointerout', () => { b.setColor(c); this._barReset(); });
-    }
+  private _sub(x: number, y: number, text: string): void {
+    this.content.add(this.add.text(x, y, text, {
+      fontSize: '16px', color: '#666666', fontFamily: FONT, padding: { x: 4, y: 2 },
+    }).setOrigin(0, 0));
   }
 
-  private _gridN(x0: number, y: number, items: { id: string; label: string }[],
-    sel: string[], max: number, cw: number,
-    onSel: (ids: string[]) => void, desc: (i: any) => string,
-  ): void {
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]; const isSel = sel.includes(it.id);
-      const can = isSel || sel.length < max;
-      const c = isSel ? '#ffaa00' : can ? '#666666' : '#333333';
-      const b = this._lbtn(x0 + (i % 2) * cw, y + Math.floor(i / 2) * 28,
-        `${isSel ? '▶' : '  '} ${it.label}`, c, cw, can);
-      if (can) {
-        b.on('pointerdown', () => { if (isSel) onSel(sel.filter(s => s !== it.id)); else onSel([...sel, it.id]); });
-        b.on('pointerover', () => { b.setColor('#ffffff'); this._bar(desc(it)); });
-        b.on('pointerout', () => { b.setColor(c); this._barReset(); });
-      }
-    }
+  private _hdr(x: number, y: number, text: string): void {
+    this.content.add(this.add.text(x, y, text, {
+      fontSize: '20px', color: '#ffaa00', fontFamily: FONT, padding: { x: 4, y: 2 },
+    }).setOrigin(0, 0));
   }
 
-  private _startGame(): void {
+  private _st(x: number, y: number, text: string, color: string, size: string, fw?: number): void {
+    const style: Phaser.Types.GameObjects.Text.TextStyle = {
+      fontSize: size, color, fontFamily: FONT, padding: { left: 4, top: 2, right: 4, bottom: 2 },
+    };
+    if (fw) { style.wordWrap = { width: fw }; }
+    this.summary.add(this.add.text(x, y, text, style).setOrigin(0, 0));
+  }
+
+  private _hint(): string { return '\uc635\uc158 \uc704\uc5d0 \ub9c8\uc6b0\uc2a4\ub97c \uc62c\ub824\ubcf4\uc138\uc694'; }
+  private _setDesc(t: string): void { this.desc.setText(t).setColor('#aaaaaa'); }
+  private _resetDesc(): void { this.desc.setText(this._hint()).setColor('#555555'); }
+
+  private _start(): void {
+    if (this.selectedSupports.length < 2) return;
     this.scene.start('GameScene', {
       build: {
         keystone: this.selectedKeystone, skill: this.selectedSkill,
@@ -426,16 +447,15 @@ export class BuildScene extends Phaser.Scene {
     });
   }
 
-  private _barDefault(): string { return 'WASD 이동 · 좌클릭 공격 · Shift 탭:대시 · Shift 홀드:Reform · 클릭으로 선택'; }
-  private _bar(t: string): void { this.barText.setText(t).setColor('#aaaaaa'); }
-  private _barReset(): void { this.barText.setText(this._barDefault()).setColor('#555555'); }
-
   private _tags(): Tag[] {
-    return getBuildTags({
-      keystone: this.selectedKeystone, skill: this.selectedSkill,
-      supports: [this.selectedSupports[0], this.selectedSupports[1]],
-      item: this.selectedItem, clusters: [], nodes: [],
-    });
+    const tags = new Set<Tag>();
+    for (const t of getKeystone(this.selectedKeystone).tags) tags.add(t);
+    for (const t of getSkill(this.selectedSkill).tags) tags.add(t);
+    for (const sid of this.selectedSupports) {
+      for (const t of getSupport(sid).tags) tags.add(t);
+    }
+    for (const t of getItem(this.selectedItem).tags) tags.add(t);
+    return [...tags];
   }
 
   private _topBanLib(): { topBan: string; topLib: string } {
@@ -445,8 +465,10 @@ export class BuildScene extends Phaser.Scene {
     }
     const ks = getKeystone(this.selectedKeystone);
     if (ks.penalty && ks.benefit) return { topBan: ks.penalty, topLib: ks.benefit };
-    const s0 = getSupport(this.selectedSupports[0]);
-    if (s0.desc) return { topBan: s0.desc, topLib: s0.armyRule };
+    if (this.selectedSupports[0]) {
+      const s0 = getSupport(this.selectedSupports[0]);
+      if (s0.desc) return { topBan: s0.desc, topLib: s0.armyRule };
+    }
     const it = getItem(this.selectedItem);
     return { topBan: it.penalty, topLib: it.benefit };
   }

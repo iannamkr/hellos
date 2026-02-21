@@ -119,6 +119,41 @@ All textures are generated at runtime in `GameScene._createTextures()` using `th
 
 ---
 
+## Sim 동기화 규칙
+
+`src/army/SquadPolicy.ts`, `src/entities/ArmyUnit.ts` 등 편대 배치·행동 로직을 변경하면 **반드시** `apps/sim/src/SimPreview.ts`의 `drawAllies()`도 함께 수정할 것. SimPreview는 게임 로직을 참조하지 않고 하드코딩된 좌표로 편대를 그리므로, 게임 쪽만 바꾸면 sim 미리보기가 실제 동작과 어긋난다.
+
+## Balance 스키마 동기화 규칙
+
+게임 로직에서 사용하는 **모든 밸런스 상수**는 `shared/balance/schema.ts`에 정의하고, `shared/balance/defaults.ts`에 기본값을 넣어 `apps/sim/src/SimApp.ts`에서 편집 가능하게 할 것. 하드코딩된 매직 넘버를 게임 코드에 남기지 말 것.
+
+- **스키마**: `shared/balance/schema.ts` — 타입 정의 (`CommanderStats`, `UnitStats`, `EnemyStats`, `GameConfig`, `ModifierConfig`)
+- **기본값**: `shared/balance/defaults.ts` — `DEFAULT_BALANCE` 객체
+- **Sim UI**: `apps/sim/src/SimApp.ts` — 편집 필드 배열 (`VANGUARD_FIELDS`, `CAVALRY_FIELDS`, `DASHER_FIELDS` 등) + Modifiers 탭
+- **게임 읽기**: `src/army/SquadPolicy.ts` — `rules.vanguardBalance.*`, `rules.cavalryBalance.*` 등으로 접근
+- **게임 읽기**: `src/scenes/GameScene.ts` — `bal.modifiers.items.*`, `bal.modifiers.supports.*` 등으로 접근
+
+새 밸런스 상수를 추가하거나 기존 상수를 변경할 때 **4곳 모두** 동기화할 것: 스키마 → 기본값 → Sim UI → 게임 코드.
+
+### Modifiers (`bal.modifiers`)
+
+`ModifierConfig`는 아이템/서포트/키스톤/노드의 효과 수치를 관리한다. 구조: `Partial<Record<string, Record<string, number>>>`.
+
+- **Items** (8종): `heavyBlade`, `calmMind`, `sprintBoots`, `ironSkin`, `antiDashPlate`, `zoneCore`, `hunterCharm`, `bloodOath`, `fragilePower`
+- **Supports** (6종): `closeShock`, `zoneAnchor`, `dashPrime`, `dashTax`, `farSnare`, `rhythmWindow`
+- **Keystones** (4종): `closePact`, `momentumMode`, `stillnessStance`, `kitingVow`
+- **Nodes** (4종): `A5`, `B5`, `D4`, `F3`
+
+GameScene에서 접근 패턴:
+```ts
+const mod = this.balanceData.modifiers.items?.heavyBlade;
+const knockForce = mod?.knockForce ?? 150;
+```
+
+새 modifier 수치를 추가할 때: `defaults.ts`의 `modifiers` 섹션 → `SimApp.ts`의 `MODIFIER_FIELDS` → `GameScene.ts`에서 사용.
+
+---
+
 ## Lessons Learned (Do Not Repeat)
 
 ### 1. 스펙에 없는 기능을 임의로 추가하지 말 것
