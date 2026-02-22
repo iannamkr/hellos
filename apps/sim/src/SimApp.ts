@@ -1,317 +1,22 @@
-import type { BalanceData, SquadType, EnemyType, UnitStats, EnemyStats, CommanderStats, GameConfig } from '../../../shared/balance/schema';
+import type { BalanceData, SquadType, EnemyType } from '../../../shared/balance/schema';
 import { DEFAULT_BALANCE } from '../../../shared/balance/defaults';
 import { loadBalance, saveBalanceToApi, exportBalanceToJson, importBalanceFromJson } from '../../../shared/balance/storage';
 import { summarize } from '../../../shared/balance/calc';
 import { SimPreview } from './SimPreview';
+import type { FieldSpec, ModCategory } from '../../../shared/balance/fields';
+import {
+  COMMANDER_FIELDS, COMMANDER_REFORM_FIELDS, COMMANDER_DIRECTION_FIELDS, COMMANDER_CHARGE_FIELDS,
+  VANGUARD_BASE_FIELDS, VANGUARD_FORMATION_FIELDS,
+  ARCHER_BASE_FIELDS, ARCHER_FORMATION_FIELDS,
+  CAVALRY_BASE_FIELDS, CAVALRY_FORMATION_FIELDS, CAVALRY_STATE_FIELDS, CAVALRY_STABILITY_FIELDS,
+  CHASER_BASE_FIELDS, CHASER_FIELDS, DASHER_BASE_FIELDS, DASHER_FIELDS, BUFFER_BASE_FIELDS, BUFFER_FIELDS,
+  GAME_SPAWN_FIELDS, GAME_ARMY_FIELDS, GAME_SEPARATION_FIELDS, GAME_ANCHOR_FIELDS,
+  GAME_FLAG_FIELDS, GAME_CAMERA_FIELDS, GAME_ENCOUNTER_FIELDS, GAME_ZONE_FIELDS, GAME_CAP_FIELDS,
+  MODIFIER_FIELDS, MOD_CATEGORY_LABELS,
+} from '../../../shared/balance/fields';
 
 const SQUAD_TYPES: SquadType[] = ['vanguard', 'archer', 'cavalry'];
 const ENEMY_TYPES: EnemyType[] = ['chaser', 'dasher', 'buffer'];
-
-type FieldDef<T> = Array<{ key: keyof T & string; label: string; tip: string }>;
-
-const COMMANDER_FIELDS: FieldDef<CommanderStats> = [
-  { key: 'maxHp', label: 'Max HP', tip: '최대 체력' },
-  { key: 'speed', label: 'Speed', tip: '이동 속도' },
-  { key: 'atkCD', label: 'Atk CD (ms)', tip: '공격 쿨다운' },
-  { key: 'dashCD', label: 'Dash CD (ms)', tip: '대시 쿨다운' },
-  { key: 'dashDuration', label: 'Dash Duration (ms)', tip: '대시 지속 시간' },
-  { key: 'dashSpeed', label: 'Dash Speed', tip: '대시 속도' },
-  { key: 'iframes', label: 'I-Frames (ms)', tip: '무적 지속 시간' },
-  { key: 'reformCD', label: 'Reform CD (ms)', tip: '재편성 쿨다운' },
-  { key: 'reformThreshold', label: 'Reform Hold (ms)', tip: '재편성 발동 홀드 시간' },
-];
-
-const COMMANDER_REFORM_FIELDS: FieldDef<CommanderStats> = [
-  { key: 'reformSpeedMult', label: 'Reform Speed x', tip: '재편성 이동 속도 배율' },
-  { key: 'reformArriveRadius', label: 'Arrive Radius', tip: '슬롯 도착 판정 반경' },
-  { key: 'reformBrakeRadius', label: 'Brake Radius', tip: '감속 시작 반경' },
-  { key: 'reformStaggerInterval', label: 'Stagger (ms/unit)', tip: '유닛별 재편성 시차' },
-  { key: 'reformDuration', label: 'Duration (ms)', tip: '재편성 지속 시간' },
-];
-
-const COMMANDER_DIRECTION_FIELDS: FieldDef<CommanderStats> = [
-  { key: 'commitAngle', label: 'Commit Angle (°)', tip: '방향 전환 임계 각도' },
-  { key: 'commitSpeedThreshold', label: 'Speed Threshold', tip: '방향 갱신 최소 속도' },
-  { key: 'commitHoldTime', label: 'Hold Time (ms)', tip: '방향 전환 유지 시간' },
-  { key: 'commitSlerpFactor', label: 'Slerp Factor', tip: '방향 보간 계수 (0~1)' },
-  { key: 'commitCooldown', label: 'Cooldown (ms)', tip: '방향 전환 후 쿨다운' },
-];
-
-const COMMANDER_CHARGE_FIELDS: FieldDef<CommanderStats> = [
-  { key: 'chargeDuration', label: 'Charge Duration (ms)', tip: '차지 완충 시간' },
-  { key: 'chargeRingStart', label: 'Ring Start (px)', tip: '차지 링 시작 반경' },
-  { key: 'chargeRingMax', label: 'Ring Max (px)', tip: '차지 링 최대 반경' },
-  { key: 'chargeDamageMult', label: 'Damage Mult', tip: '차지 완충 시 데미지 배율' },
-];
-
-const UNIT_FIELDS: FieldDef<UnitStats> = [
-  { key: 'maxHp', label: 'Max HP', tip: '최대 체력' },
-  { key: 'dmg', label: 'Damage', tip: '공격력' },
-  { key: 'atkCD', label: 'Atk CD (ms)', tip: '공격 쿨다운' },
-  { key: 'unitSpeed', label: 'Speed', tip: '이동 속도' },
-  { key: 'range', label: 'Range', tip: '공격 사거리' },
-  { key: 'engageRadius', label: 'Engage Radius', tip: '교전 반경 (이 안에 적이 오면 공격)' },
-  { key: 'returnRadius', label: 'Return Radius', tip: '복귀 반경 (이 밖으로 나가면 슬롯 복귀)' },
-];
-
-const VANGUARD_FIELDS: FieldDef<UnitStats> = [
-  { key: 'lineDepth', label: 'Line Depth', tip: '전선 깊이 (FLAG에서 전선까지 거리)' },
-  { key: 'holdIn', label: 'Hold In (px)', tip: 'HOLD 진입 거리 (슬롯 근접 시 감속 시작)' },
-  { key: 'holdOut', label: 'Hold Out (px)', tip: 'HOLD 탈출 거리 (이 이상이면 정상 속도)' },
-  { key: 'vanguardGapNormal', label: 'Gap Normal', tip: '이동 시 슬롯 간격' },
-  { key: 'vanguardGapStill', label: 'Gap Still (E2)', tip: '정지 시 슬롯 간격 (E2 노드)' },
-  { key: 'holdSpeedMult', label: 'Hold Speed x', tip: 'HOLD 상태 속도 배율' },
-  { key: 'targetLockMs', label: 'Target Lock (ms)', tip: '타겟 고정 유지 시간' },
-];
-
-const ARCHER_FIELDS: FieldDef<UnitStats> = [
-  { key: 'rank0Depth', label: 'Rank 0 Depth', tip: '1열 깊이 (앵커 뒤 거리)' },
-  { key: 'rank1Depth', label: 'Rank 1 Depth', tip: '2열 깊이 (앵커 뒤 거리)' },
-  { key: 'slotGap', label: 'Slot Gap', tip: '슬롯 간격' },
-  { key: 'maxSpread', label: 'Max Spread', tip: '최대 횡 전개 폭' },
-  { key: 'deadZone', label: 'Dead Zone', tip: '사격 금지 구역 (리더 기준)' },
-  { key: 'retreatSpeedMult', label: 'Retreat Speed x', tip: 'A4 후퇴 시 속도 배율' },
-  { key: 'normalSpeedMult', label: 'Normal Speed x', tip: '일반 이동 속도 배율' },
-];
-
-const CAVALRY_FORMATION_FIELDS: FieldDef<UnitStats> = [
-  { key: 'gapSpacing', label: 'Gap Spacing', tip: 'Gap 샘플 포인트 간격 (px)' },
-  { key: 'gapOffset', label: 'Gap Offset', tip: '전선 뒤 오프셋 (음수 = 뒤)' },
-  { key: 'gapCalcInterval', label: 'Gap Calc (ms)', tip: 'Gap 재계산 쓰로틀 주기' },
-  { key: 'seekInterceptDist', label: 'Seek→Intercept (px)', tip: 'Gap 접근 시 요격 전환 거리' },
-  { key: 'interceptLerp', label: 'Intercept Lerp', tip: '요격 지점 보간 계수 (0=gap, 1=적)' },
-  { key: 'egressDepth', label: 'Egress Depth', tip: '복귀 지점 깊이 (전선 뒤 거리)' },
-  { key: 'gapScanRadius', label: 'Gap Scan Radius', tip: 'Vanguard 밀도 스캔 반경' },
-  { key: 'gapTargetRadius', label: 'Gap Target Radius', tip: '빈틈 주변 적 탐색 반경' },
-];
-
-const CAVALRY_STATE_FIELDS: FieldDef<UnitStats> = [
-  { key: 'interceptTimeout', label: 'Intercept Timeout (ms)', tip: '요격 최대 시간 → DISRUPT 전환' },
-  { key: 'interceptSpeedMult', label: 'Intercept Speed x', tip: '요격 시 속도 배율' },
-  { key: 'cavDisruptDuration', label: 'Disrupt Duration (ms)', tip: '차단 지속 시간' },
-  { key: 'cavDisruptMaxHits', label: 'Disrupt Max Hits', tip: '차단 중 최대 타격 횟수' },
-  { key: 'cavEgressDuration', label: 'Egress Duration (ms)', tip: '복귀 지속 시간' },
-  { key: 'maxConcurrentIntercepts', label: 'Max Intercepts', tip: '동시 요격/차단 최대 수' },
-];
-
-const ENEMY_BASE_FIELDS: FieldDef<EnemyStats> = [
-  { key: 'maxHp', label: 'Max HP', tip: '최대 체력' },
-  { key: 'touchDmg', label: 'Touch Dmg', tip: '접촉 피해' },
-  { key: 'speed', label: 'Speed', tip: '이동 속도' },
-  { key: 'speedRange', label: 'Speed Range', tip: '속도 변동 범위 (0~speedRange 랜덤 추가)' },
-];
-
-const CHASER_FIELDS: FieldDef<EnemyStats> = [
-  { key: 'lineHoldDist', label: 'Line Hold Dist', tip: '전열 유지 거리 (깃발 기준)' },
-  { key: 'cohesionRadius', label: 'Cohesion Radius', tip: '결속 반경 (동료 추종 범위)' },
-  { key: 'slotSpacing', label: 'Slot Spacing', tip: '전열 슬롯 간격' },
-  { key: 'lineHoldSpeedMult', label: 'Line Hold Speed x', tip: '전열 유지 시 속도 배율' },
-];
-
-const DASHER_FIELDS: FieldDef<EnemyStats> = [
-  { key: 'patrolDuration', label: 'Patrol Duration (ms)', tip: '순찰 지속 시간 → 돌진 준비 전환' },
-  { key: 'dashWindup', label: 'Dash Windup (ms)', tip: '돌진 준비 시간 (텔레그래프)' },
-  { key: 'dashSpeed', label: 'Dash Speed', tip: '돌진 속도' },
-  { key: 'dashDuration', label: 'Dash Duration (ms)', tip: '돌진 지속 시간' },
-  { key: 'flashInterval', label: 'Flash Interval (ms)', tip: '준비 중 깜빡임 주기' },
-  { key: 'telegraphLength', label: 'Telegraph Length (px)', tip: '텔레그래프 라인 길이' },
-  { key: 'cooldownDuration', label: 'Cooldown (ms)', tip: '돌진 후 쿨다운' },
-  { key: 'penetrationDist', label: 'Penetration Dist', tip: '침투 거리' },
-  { key: 'disruptDuration', label: 'Disrupt Duration (ms)', tip: '붕괴 지속 시간 (정지+넉백)' },
-  { key: 'egressDuration', label: 'Egress Duration (ms)', tip: '이탈 지속 시간' },
-  { key: 'egressSpeed', label: 'Egress Speed', tip: '이탈 속도' },
-];
-
-const BUFFER_FIELDS: FieldDef<EnemyStats> = [
-  { key: 'auraRadius', label: 'Aura Radius', tip: '오라 반경' },
-  { key: 'auraSpeedBoost', label: 'Aura Speed x', tip: '오라 속도 증폭 배율' },
-];
-
-const GAME_SPAWN_FIELDS: FieldDef<GameConfig> = [
-  { key: 'platoonSpawnInterval', label: 'Spawn Interval (ms)', tip: '소대 생성 주기' },
-  { key: 'platoonSizeChaser', label: 'Platoon: Chaser', tip: '추격병 소대 인원 수' },
-  { key: 'platoonSizeDasher', label: 'Platoon: Dasher', tip: '돌진병 소대 인원 수' },
-  { key: 'platoonSizeBuffer', label: 'Platoon: Buffer', tip: '버퍼 소대 인원 수' },
-  { key: 'volleyCycle', label: 'Volley Cycle (ms)', tip: '일제 사격 주기' },
-  { key: 'volleyWindow', label: 'Volley Window (ms)', tip: '일제 사격 창 (발사 가능 구간)' },
-  { key: 'commandAuraRadius', label: 'Cmd Aura Radius', tip: '지휘 오라 반경' },
-];
-
-const GAME_ARMY_FIELDS: FieldDef<GameConfig> = [
-  { key: 'squadSizeVanguard', label: 'Vanguard Count', tip: '선봉 초기 인원' },
-  { key: 'squadSizeArcher', label: 'Archer Count', tip: '궁병 초기 인원' },
-  { key: 'squadSizeCavalry', label: 'Cavalry Count', tip: '기병 초기 인원' },
-];
-
-const GAME_SEPARATION_FIELDS: FieldDef<GameConfig> = [
-  { key: 'separationDist', label: 'Sep. Distance (px)', tip: '유닛 간 반발 거리' },
-  { key: 'separationForce', label: 'Sep. Force', tip: '유닛 간 반발력' },
-  { key: 'formingExitDist', label: 'Forming Exit (px)', tip: 'FORMING 상태 탈출 거리' },
-];
-
-const GAME_ANCHOR_FIELDS: FieldDef<GameConfig> = [
-  { key: 'anchorDecayVanguard', label: 'Anchor: Vanguard', tip: '선봉 앵커 추적 속도' },
-  { key: 'anchorDecayArcher', label: 'Anchor: Archer', tip: '궁병 앵커 추적 속도' },
-  { key: 'anchorDecayCavalry', label: 'Anchor: Cavalry', tip: '기병 앵커 추적 속도' },
-];
-
-const GAME_FLAG_FIELDS: FieldDef<GameConfig> = [
-  { key: 'flagPenetrationRadius', label: 'Pen. Radius (px)', tip: 'FLAG 침투 판정 반경' },
-  { key: 'flagPenetrationThreshold', label: 'Pen. Threshold (s)', tip: 'FLAG 침투 누적 시간 → 궁병 피해' },
-];
-
-const GAME_CAMERA_FIELDS: FieldDef<GameConfig> = [
-  { key: 'cameraZoomProximity', label: 'Proximity (px)', tip: '줌 트리거 거리 (FLAG 기준)' },
-  { key: 'cameraZoomEnemyCount', label: 'Enemy Count', tip: '줌 트리거 적 수' },
-  { key: 'cameraZoomIn', label: 'Zoom In', tip: '줌인 배율' },
-  { key: 'cameraZoomNormal', label: 'Zoom Normal', tip: '기본 줌 배율' },
-  { key: 'cameraZoomEase', label: 'Ease Rate', tip: '줌 이징 속도' },
-];
-
-const GAME_ENCOUNTER_FIELDS: FieldDef<GameConfig> = [
-  { key: 'encounterStartSec', label: 'Start (s)', tip: '이벤트 시작 시간 (코어 모드)' },
-  { key: 'encounterEndSec', label: 'End (s)', tip: '이벤트 종료 시간' },
-  { key: 'encounterEarlyExitSec', label: 'Early Exit (s)', tip: '조기 종료 가능 시간' },
-];
-
-const GAME_ZONE_FIELDS: FieldDef<GameConfig> = [
-  { key: 'zoneRadius', label: 'Zone Radius (px)', tip: '존 반경' },
-  { key: 'markExplosionRadius', label: 'Mark Explosion (px)', tip: '마크 폭발 반경' },
-];
-
-const GAME_CAP_FIELDS: FieldDef<GameConfig> = [
-  { key: 'minAttackCD', label: 'Min Atk CD (ms)', tip: '공격 쿨다운 하한' },
-  { key: 'minDashCD', label: 'Min Dash CD (ms)', tip: '대시 쿨다운 하한' },
-  { key: 'armySpeedBoostMult', label: 'Army Boost x', tip: '군대 속도 부스트 배율' },
-];
-
-// ─── Modifier field definitions ─────────────────────────────────
-
-type ModCategory = 'items' | 'supports' | 'keystones' | 'nodes';
-
-interface ModFieldDef {
-  key: string;
-  label: string;
-  tip: string;
-  step?: string;
-}
-
-const MODIFIER_FIELDS: Record<ModCategory, Record<string, ModFieldDef[]>> = {
-  items: {
-    heavyBlade: [
-      { key: 'atkCdBonus', label: 'Atk CD Bonus', tip: '공격 쿨다운 증가량' },
-      { key: 'knockForce', label: 'Knock Force', tip: '넉백 힘' },
-      { key: 'knockDur', label: 'Knock Duration', tip: '넉백 지속 시간' },
-    ],
-    calmMind: [
-      { key: 'atkCdReduction', label: 'Atk CD Reduction', tip: '공격 쿨다운 감소량' },
-      { key: 'dashCdBonus', label: 'Dash CD Bonus', tip: '대시 쿨다운 증가량' },
-      { key: 'atkCdMult', label: 'Unit Atk CD x', tip: '군대 공격 쿨다운 배율', step: '0.01' },
-    ],
-    sprintBoots: [
-      { key: 'speedMult', label: 'Speed Mult', tip: '이동 속도 배율', step: '0.01' },
-      { key: 'dashCdReduction', label: 'Dash CD Reduction', tip: '대시 쿨다운 감소량' },
-      { key: 'hpPenalty', label: 'HP Penalty', tip: 'HP 감소량' },
-    ],
-    ironSkin: [
-      { key: 'speedMult', label: 'Speed Mult', tip: '이동 속도 배율', step: '0.01' },
-    ],
-    antiDashPlate: [
-      { key: 'iframes', label: 'I-Frames (ms)', tip: '무적 지속 시간' },
-    ],
-    zoneCore: [
-      { key: 'durationMult', label: 'Duration Mult', tip: '존 지속 시간 배율', step: '0.01' },
-      { key: 'atkCdBonusOut', label: 'Atk CD Out', tip: '존 밖 공격 쿨다운 증가' },
-      { key: 'dashCdReductionIn', label: 'Dash CD In', tip: '존 안 대시 쿨다운 감소' },
-    ],
-    hunterCharm: [
-      { key: 'slowFactor', label: 'Slow Factor', tip: '감속 비율', step: '0.01' },
-      { key: 'slowDur', label: 'Slow Duration', tip: '감속 지속 시간' },
-    ],
-    bloodOath: [
-      { key: 'restoreKills', label: 'Restore Kills', tip: '유닛 복원 필요 킬 수' },
-    ],
-    fragilePower: [
-      { key: 'hpPenalty', label: 'HP Penalty', tip: '지휘관 HP 감소' },
-      { key: 'unitHpPenalty', label: 'Unit HP Penalty', tip: '군대 유닛 HP 감소' },
-      { key: 'extraDashIframes', label: 'Extra Dash i-Frames', tip: '대시 추가 무적 시간' },
-    ],
-  },
-  supports: {
-    closeShock: [
-      { key: 'atkCdBonus', label: 'Atk CD Bonus', tip: '공격 쿨다운 증가' },
-      { key: 'freezeDur', label: 'Freeze (ms)', tip: '지휘관 공격 동결 시간' },
-      { key: 'unitFreezeDur', label: 'Unit Freeze (ms)', tip: '선봉 공격 동결 시간' },
-    ],
-    zoneAnchor: [
-      { key: 'atkReduction', label: 'Atk Reduction', tip: '존 안 공격CD 감소 비율', step: '0.01' },
-      { key: 'atkIncrease', label: 'Atk Increase', tip: '존 밖 공격CD 증가 비율', step: '0.01' },
-      { key: 'duration', label: 'Duration (ms)', tip: '존 지속 시간' },
-    ],
-    dashPrime: [
-      { key: 'knockForce', label: 'Knock Force', tip: '넉백 힘' },
-      { key: 'knockDur', label: 'Knock Duration', tip: '넉백 지속 시간' },
-      { key: 'window', label: 'Window (ms)', tip: '대시 프라임 창' },
-      { key: 'armyBoostDur', label: 'Army Boost (ms)', tip: '군대 속도 부스트 지속' },
-    ],
-    dashTax: [
-      { key: 'buffDur', label: 'Buff Duration (ms)', tip: '대시 후 공격 버프 지속' },
-    ],
-    farSnare: [
-      { key: 'slowFactor', label: 'Slow Factor', tip: '감속 비율 (지휘관)', step: '0.01' },
-      { key: 'slowDur', label: 'Slow Duration', tip: '감속 지속 (지휘관)' },
-      { key: 'unitSlowFactor', label: 'Unit Slow Factor', tip: '감속 비율 (궁병)', step: '0.01' },
-      { key: 'unitSlowDur', label: 'Unit Slow Dur', tip: '감속 지속 (궁병)' },
-    ],
-    rhythmWindow: [
-      { key: 'cycleDur', label: 'Cycle (ms)', tip: '리듬 사이클 길이' },
-      { key: 'powerStart', label: 'Power Start (ms)', tip: '파워 윈도우 시작 시점' },
-    ],
-  },
-  keystones: {
-    closePact: [
-      { key: 'auraRadiusMult', label: 'Aura Radius x', tip: '오라 반경 배율', step: '0.01' },
-    ],
-    momentumMode: [
-      { key: 'movingMult', label: 'Moving Mult', tip: '이동 시 군대 속도 배율', step: '0.01' },
-      { key: 'stillMult', label: 'Still Mult', tip: '정지 시 군대 속도 배율', step: '0.01' },
-      { key: 'dasherWindupMult', label: 'Dasher Windup x', tip: '대셔 준비 시간 배율', step: '0.01' },
-    ],
-    stillnessStance: [
-      { key: 'anchorLinger', label: 'Anchor Linger (ms)', tip: '정지 앵커 잔류 시간' },
-    ],
-    kitingVow: [
-      { key: 'closeAtkCdMult', label: 'Close Atk CD x', tip: '근접 공격 쿨다운 배율', step: '0.01' },
-      { key: 'farDashCdMult', label: 'Far Dash CD x', tip: '원거리 대시 쿨다운 배율', step: '0.01' },
-      { key: 'minDistToMark', label: 'Min Dist to Mark', tip: '궁병 사격 최소 거리' },
-    ],
-  },
-  nodes: {
-    A5: [
-      { key: 'slowFactor', label: 'Slow Factor', tip: '첫 타 감속 비율', step: '0.01' },
-      { key: 'slowDur', label: 'Slow Duration', tip: '첫 타 감속 지속' },
-    ],
-    B5: [
-      { key: 'pullDist', label: 'Pull Dist', tip: '당김 거리' },
-      { key: 'pullForce', label: 'Pull Force', tip: '당김 힘' },
-      { key: 'pullDur', label: 'Pull Duration', tip: '당김 지속 시간' },
-    ],
-    D4: [
-      { key: 'buffDur', label: 'Buff Duration (ms)', tip: '마크 처치 후 버프 지속' },
-    ],
-    F3: [
-      { key: 'commitAngle', label: 'Commit Angle (°)', tip: '방향 전환 각도 (노드 적용)' },
-      { key: 'cooldown', label: 'Cooldown (ms)', tip: '방향 전환 쿨다운 (노드 적용)' },
-    ],
-  },
-};
-
-const MOD_CATEGORY_LABELS: Record<ModCategory, string> = {
-  items: 'Items',
-  supports: 'Supports',
-  keystones: 'Keystones',
-  nodes: 'Nodes',
-};
 
 type Tab = 'commander' | 'units' | 'enemies' | 'game' | 'modifiers';
 
@@ -486,14 +191,17 @@ export class SimApp {
 
   private renderUnitEditor(): string {
     const stats = this.balance.units[this.selectedUnit];
-    let html = this.renderFields(stats, UNIT_FIELDS);
+    const baseFields = this.selectedUnit === 'vanguard' ? VANGUARD_BASE_FIELDS
+      : this.selectedUnit === 'archer' ? ARCHER_BASE_FIELDS : CAVALRY_BASE_FIELDS;
+    let html = this.renderFields(stats, baseFields);
     if (this.selectedUnit === 'vanguard') {
-      html += `<h3>Formation</h3>` + this.renderFields(stats, VANGUARD_FIELDS);
+      html += `<h3>Formation</h3>` + this.renderFields(stats, VANGUARD_FORMATION_FIELDS);
     } else if (this.selectedUnit === 'archer') {
-      html += `<h3>Formation</h3>` + this.renderFields(stats, ARCHER_FIELDS);
+      html += `<h3>Formation</h3>` + this.renderFields(stats, ARCHER_FORMATION_FIELDS);
     } else if (this.selectedUnit === 'cavalry') {
       html += `<h3>Formation</h3>` + this.renderFields(stats, CAVALRY_FORMATION_FIELDS);
       html += `<h3>State Machine</h3>` + this.renderFields(stats, CAVALRY_STATE_FIELDS);
+      html += `<h3>Stability</h3>` + this.renderFields(stats, CAVALRY_STABILITY_FIELDS);
     }
     return html;
   }
@@ -524,7 +232,7 @@ export class SimApp {
 
     return fields.map(f => {
       const val = obj[f.key];
-      const step = f.step ?? (f.key.includes('Mult') || f.key.includes('Factor') || f.key.includes('Lerp') ? '0.01' : '1');
+      const step = f.step ?? (f.key.includes('Mult') || f.key.includes('Factor') || f.key.includes('Lerp') ? 0.01 : 1);
       return `<div class="field">
         <label data-tip="${f.tip}">${f.label}</label>
         <input type="number" data-mod-field="${f.key}" value="${val ?? ''}" min="-9999" max="9999" step="${step}">
@@ -532,10 +240,10 @@ export class SimApp {
     }).join('');
   }
 
-  private renderFields(obj: any, fields: Array<{ key: string; label: string; tip: string }>): string {
+  private renderFields(obj: any, fields: readonly FieldSpec[]): string {
     return fields.map(f => {
       const val = obj[f.key];
-      const step = f.key.includes('Mult') || f.key.includes('Boost') || f.key.includes('Factor') || f.key.includes('Lerp') ? '0.01' : '1';
+      const step = f.step ?? (f.key.includes('Mult') || f.key.includes('Boost') || f.key.includes('Factor') || f.key.includes('Lerp') ? 0.01 : 1);
       return `<div class="field">
         <label data-tip="${f.tip}">${f.label}</label>
         <input type="number" data-field="${f.key}" value="${val ?? ''}" min="0" max="9999" step="${step}">
@@ -545,7 +253,9 @@ export class SimApp {
 
   private renderEnemyEditor(): string {
     const stats = this.balance.enemies[this.selectedEnemy];
-    let html = this.renderFields(stats, ENEMY_BASE_FIELDS);
+    const baseFields = this.selectedEnemy === 'chaser' ? CHASER_BASE_FIELDS
+      : this.selectedEnemy === 'dasher' ? DASHER_BASE_FIELDS : BUFFER_BASE_FIELDS;
+    let html = this.renderFields(stats, baseFields);
     // Type-specific fields
     const extra = this.selectedEnemy === 'chaser' ? CHASER_FIELDS
       : this.selectedEnemy === 'dasher' ? DASHER_FIELDS
