@@ -32,6 +32,7 @@ export class Player extends Phaser.Physics.Arcade.Image {
 
   private _dashStartPos = { x: 0, y: 0 };
   private _shiftWasDown = false;
+  private _reformKeyWasDown = false;
 
   private _cursors: Phaser.Types.Input.Keyboard.CursorKeys;
   private _wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
@@ -137,8 +138,9 @@ export class Player extends Phaser.Physics.Arcade.Image {
 
     this.isMoving = (vx !== 0 || vy !== 0);
 
-    // R key: reform (instant)
-    if (Phaser.Input.Keyboard.JustDown(this._rKey)) {
+    // Q key: reform (instant, on press)
+    const reformKeyDown = this._rKey.isDown;
+    if (reformKeyDown && !this._reformKeyWasDown) {
       if (now >= this._nextReform && !this.dashDisabled) {
         this.reformTriggered = true;
         this._nextReform = now + this.reformCD;
@@ -146,6 +148,7 @@ export class Player extends Phaser.Physics.Arcade.Image {
         this.reformOnCooldown = true;
       }
     }
+    this._reformKeyWasDown = reformKeyDown;
 
     // Shift: dash (on release)
     const shiftDown = this._shift.isDown;
