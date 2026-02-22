@@ -110,6 +110,14 @@ export const VANGUARD_FORMATION_FIELDS: FieldSpec[] = [
   { key: 'vanguardGapStill',  default: 35,  label: 'Gap Still (E2)',   tip: '정지 시 슬롯 간격 (E2 노드)' },
   { key: 'holdSpeedMult',     default: 0.7, label: 'Hold Speed x',     tip: 'HOLD 상태 속도 배율', step: 0.01 },
   { key: 'targetLockMs',      default: 800, label: 'Target Lock (ms)', tip: '타겟 고정 유지 시간' },
+  { key: 'protectR',              default: 220, label: 'Protect R',         tip: '지휘관 보호 반경' },
+  { key: 'protectR2',             default: 240, label: 'Protect R2',        tip: '궁병리더 보호 반경' },
+  { key: 'protectROut',           default: 300, label: 'Protect R Out',     tip: '보호 이탈 반경 (히스테리시스)' },
+  { key: 'breachDepth',           default: 60,  label: 'Breach Depth',      tip: '적 라인 침범 깊이' },
+  { key: 'interceptPush',         default: 80,  label: 'Intercept Push',    tip: 'INTERCEPT 전진 거리' },
+  { key: 'guardThreatMs',         default: 120, label: 'Guard Threat (ms)', tip: '위협 연속 감지 시간' },
+  { key: 'guardThreatSpeedMult',  default: 0.6, label: 'Threat Speed x',   tip: '위협 감지 시 이동 감속', step: 0.01 },
+  { key: 'a3PushForce',           default: 50,  label: 'A3 Push Force',    tip: 'A3 노드 후퇴 방지 밀기 힘' },
 ];
 
 // ─── Archer formation ────────────────────────────────────
@@ -122,6 +130,7 @@ export const ARCHER_FORMATION_FIELDS: FieldSpec[] = [
   { key: 'deadZone',         default: 120, label: 'Dead Zone',       tip: '사격 금지 구역 (리더 기준)' },
   { key: 'retreatSpeedMult', default: 1.5, label: 'Retreat Speed x', tip: 'A4 후퇴 시 속도 배율', step: 0.01 },
   { key: 'normalSpeedMult',  default: 0.5, label: 'Normal Speed x',  tip: '일반 이동 속도 배율', step: 0.01 },
+  { key: 'slotArrDist',      default: 30,  label: 'Slot Arrive (px)', tip: '슬롯 도착 판정 거리' },
 ];
 
 // ─── Cavalry ─────────────────────────────────────────────
@@ -156,6 +165,10 @@ export const CAVALRY_STABILITY_FIELDS: FieldSpec[] = [
   { key: 'cavAccel',               default: 2800, label: 'Accel',            tip: '가속도' },
   { key: 'cavInterceptMaxLateral', default: 140,  label: 'Intercept Max Lat', tip: '요격 최대 횡이동' },
   { key: 'cavInterceptFixedDepth', default: 60,   label: 'Intercept Depth',  tip: '요격 고정 깊이' },
+  { key: 'cavLoadLambda',          default: 1.25, label: 'Load Lambda',      tip: '부하 밸런싱 가중치', step: 0.01 },
+  { key: 'cavLateralSpread',       default: 80,   label: 'Lateral Spread',   tip: '횡 분산 범위 (px)' },
+  { key: 'cavDepthSpread',         default: 40,   label: 'Depth Spread',     tip: '종 분산 범위 (px)' },
+  { key: 'cavEgressGapScale',      default: 0.5,  label: 'Egress Gap Scale', tip: '복귀 gap 비율', step: 0.01 },
 ];
 
 // ─── Chaser ──────────────────────────────────────────────
@@ -248,6 +261,32 @@ export const GAME_CAP_FIELDS: FieldSpec[] = [
   { key: 'minAttackCD',        default: 100, label: 'Min Atk CD (ms)',  tip: '공격 쿨다운 하한' },
   { key: 'minDashCD',          default: 400, label: 'Min Dash CD (ms)', tip: '대시 쿨다운 하한' },
   { key: 'armySpeedBoostMult', default: 1.5, label: 'Army Boost x',    tip: '군대 속도 부스트 배율', step: 0.01 },
+];
+
+export const GAME_MOVEMENT_FIELDS: FieldSpec[] = [
+  { key: 'moveHaltDist',      default: 10,  label: 'Halt Dist (px)',     tip: '슬롯 도착 정지 거리' },
+  { key: 'moveSoftZone',      default: 60,  label: 'Soft Zone (px)',     tip: '감속 구간 거리' },
+  { key: 'moveSoftSpeedMult', default: 2.5, label: 'Soft Speed x',      tip: '감속 구간 속도 배율', step: 0.01 },
+  { key: 'moveSoftSpeedCap',  default: 140, label: 'Soft Speed Cap',    tip: '감속 구간 속도 상한' },
+  { key: 'moveFarSpeedMult',  default: 3,   label: 'Far Speed x',       tip: '원거리 속도 배율', step: 0.01 },
+];
+
+export const GAME_DIRECTION_FIELDS: FieldSpec[] = [
+  { key: 'dirTurnRate',  default: 1.2, label: 'Dir Turn Rate (rad/s)', tip: '전열 방향 회전 속도', step: 0.01 },
+  { key: 'aimDeadZone',  default: 5,   label: 'Aim Dead Zone (px)',    tip: '커서 사각 판정 거리' },
+];
+
+export const GAME_SQUAD_FIELDS: FieldSpec[] = [
+  { key: 'squadReformDur',  default: 10000, label: 'Reform Dur (ms)',  tip: '분대 전멸 → 재편성 대기 시간' },
+  { key: 'squadProtectDur', default: 2000,  label: 'Protect Dur (ms)', tip: '재편성 후 보호 시간' },
+];
+
+export const GAME_FRONTLINE_FIELDS: FieldSpec[] = [
+  { key: 'frontLineFwdMin',      default: 100,  label: 'Fwd Min (px)',      tip: '전선 감지 최소 전방 거리' },
+  { key: 'frontLineFwdMax',      default: 220,  label: 'Fwd Max (px)',      tip: '전선 감지 최대 전방 거리' },
+  { key: 'frontLineMinCount',    default: 4,    label: 'Min Count',         tip: '전선 유지 최소 선봉 수' },
+  { key: 'frontLineCollapseDur', default: 6000, label: 'Collapse Dur (ms)', tip: '전선 붕괴 지속 시간' },
+  { key: 'frontLineEngageDist',  default: 100,  label: 'Engage Dist (px)',  tip: '전선 유지 시 적 교전 거리' },
 ];
 
 // ─── Modifiers ───────────────────────────────────────────
@@ -343,21 +382,63 @@ export const MODIFIER_FIELDS: Record<ModCategory, Record<string, FieldSpec[]>> =
     ],
   },
   nodes: {
-    A5: [
+    vanguardSlowOnHit: [
       { key: 'slowFactor', default: 0.3,  label: 'Slow Factor',   tip: '첫 타 감속 비율', step: 0.01 },
       { key: 'slowDur',    default: 1000, label: 'Slow Duration', tip: '첫 타 감속 지속' },
     ],
-    B5: [
+    arrowPull: [
       { key: 'pullDist',  default: 100,  label: 'Pull Dist',     tip: '당김 거리' },
       { key: 'pullForce', default: 60,   label: 'Pull Force',    tip: '당김 힘' },
       { key: 'pullDur',   default: 1000, label: 'Pull Duration', tip: '당김 지속 시간' },
     ],
-    D4: [
+    markKillReward: [
       { key: 'buffDur', default: 3000, label: 'Buff Duration (ms)', tip: '마크 처치 후 버프 지속' },
     ],
-    F3: [
+    moveRotation: [
       { key: 'commitAngle', default: 25,  label: 'Commit Angle (°)', tip: '방향 전환 각도 (노드 적용)' },
       { key: 'cooldown',    default: 350, label: 'Cooldown (ms)',    tip: '방향 전환 쿨다운 (노드 적용)' },
+    ],
+    stillReward: [
+      { key: 'stillDur',   default: 2000, label: 'Still Dur (ms)',  tip: '정지 유도 필요 시간' },
+      { key: 'weakenDur',  default: 4000, label: 'Weaken Dur (ms)', tip: '측면 약화 지속 시간' },
+    ],
+    moveStartPenalty: [
+      { key: 'archerLockDur', default: 1000, label: 'Archer Lock (ms)', tip: '이동 시작 후 궁병 사격 금지 시간' },
+    ],
+    fortressDoctrine: [
+      { key: 'backSealDur', default: 500, label: 'Back Seal (ms)', tip: '정지 시 후방 봉쇄 시간' },
+    ],
+    stillCombatBan: [
+      { key: 'speedThreshold', default: 10, label: 'Speed Threshold', tip: '군대 공격 억제 속도 임계값' },
+    ],
+    noBackwalk: [
+      { key: 'velThreshold', default: 10,   label: 'Vel Threshold',    tip: '역주행 감지 속도 임계값' },
+      { key: 'backDot',      default: 0.5,  label: 'Back Dot',         tip: '역주행 판정 내적 임계값 (부호 반전)', step: 0.01 },
+      { key: 'backDirDur',   default: 1000, label: 'Back Dir Dur (ms)', tip: '역주행 허용 시간' },
+      { key: 'clampMult',    default: 0.8,  label: 'Clamp Mult',       tip: '역주행 속도 감쇄 배율', step: 0.01 },
+    ],
+    skirmishDoctrine: [
+      { key: 'flagDist',    default: 260, label: 'Flag Dist (px)',  tip: 'FLAG 기준 거리 임계값' },
+      { key: 'backSealDur', default: 500, label: 'Back Seal (ms)', tip: '후방 봉쇄 시간' },
+    ],
+    ironWall: [
+      { key: 'flagDist', default: 260, label: 'Flag Dist (px)', tip: 'FLAG 기준 공격 금지 거리' },
+    ],
+    markLock: [
+      { key: 'lockDur', default: 2000, label: 'Lock Dur (ms)', tip: '마크 전환 잠금 시간' },
+    ],
+    executionDoctrine: [
+      { key: 'exitDur', default: 2000, label: 'Exit Dur (ms)', tip: '마크 대상 강제 퇴장 시간' },
+    ],
+    archerMinRange: [
+      { key: 'blockDist', default: 180, label: 'Block Dist (px)', tip: '궁병 사격 금지 근접 거리' },
+    ],
+    archerGuard: [
+      { key: 'backSealDur', default: 2000, label: 'Back Seal (ms)', tip: '궁병 피격 시 후방 봉쇄 시간' },
+    ],
+    cavalryDoctrine: [
+      { key: 'chaserFreezeDur', default: 2000, label: 'Chaser Freeze (ms)', tip: '기병 요격 시 추격병 동결 시간' },
+      { key: 'backSealDur',     default: 2000, label: 'Back Seal (ms)',     tip: '기병 요격 후 후방 봉쇄 시간' },
     ],
   },
 };
@@ -368,3 +449,70 @@ export const MOD_CATEGORY_LABELS: Record<ModCategory, string> = {
   keystones: 'Keystones',
   nodes: 'Nodes',
 };
+
+export const ITEM_DESCRIPTIONS: Record<string, string> = {
+  heavyBlade: '공속↓ 넉백 부여',
+  calmMind: '공속↑ 대시쿨↑ 군대공속↑',
+  sprintBoots: '이속↑ 대시쿨↓ 체력↓',
+  ironSkin: '이속↓ 정지 시 피격 무효',
+  antiDashPlate: '무적 시간 연장',
+  zoneCore: '존 강화 · 존밖 공속↓',
+  hunterCharm: '적 감속 부여',
+  bloodOath: '처치 누적 → 유닛 복원',
+  fragilePower: '체력↓↓ 대시 무적↑',
+};
+
+export const SUPPORT_DESCRIPTIONS: Record<string, string> = {
+  closeShock: '근접 시 공격 동결',
+  zoneAnchor: '존 안 공속↑ 밖 공속↓',
+  dashPrime: '대시 후 넉백 + 군대 가속',
+  dashTax: '대시 후 공격 버프',
+  farSnare: '원거리 감속 부여',
+  rhythmWindow: '주기적 파워 윈도우',
+};
+
+export const KEYSTONE_DESCRIPTIONS: Record<string, string> = {
+  closePact: '오라 축소 · 근접 자동 조준',
+  momentumMode: '이동 시 군대↑↑ 정지 시 ↓↓',
+  stillnessStance: '정지 앵커 잔류',
+  kitingVow: '근접 공속↓ 원거리 대시↑',
+};
+
+export const NODE_DESCRIPTIONS: Record<string, string> = {
+  vanguardSlowOnHit: '선봉 첫타 감속',
+  arrowPull: '화살 끌기',
+  markKillReward: '마크 처치 보상',
+  moveRotation: '이동 전열 회전',
+  stillReward: '정지 유도 보상',
+  moveStartPenalty: '정지 해제 페널티',
+  fortressDoctrine: '성채 교리',
+  stillCombatBan: '정지 전투 금지',
+  noBackwalk: '역주행 금지',
+  skirmishDoctrine: '유격 교리',
+  ironWall: '철벽 교리',
+  markLock: '마크 전환 잠금',
+  executionDoctrine: '집행 교리',
+  archerMinRange: '궁병 근접 사격 금지',
+  archerGuard: '궁병 피격 후방 봉쇄',
+  cavalryDoctrine: '돌격 교리',
+};
+
+export const MOD_DESCRIPTIONS: Record<ModCategory, Record<string, string>> = {
+  items: ITEM_DESCRIPTIONS,
+  supports: SUPPORT_DESCRIPTIONS,
+  keystones: KEYSTONE_DESCRIPTIONS,
+  nodes: NODE_DESCRIPTIONS,
+};
+
+export const UNIT_DESCRIPTIONS: Record<string, string> = {
+  vanguard: '전열 방어 · 근접전',
+  archer: '원거리 화력 · 일제 사격',
+  cavalry: '측면 요격 · 기동 차단',
+};
+
+export const ENEMY_DESCRIPTIONS: Record<string, string> = {
+  chaser: '직선 추격 · 접촉 피해',
+  dasher: '돌진 공격 · 관통',
+  buffer: '아군 강화 오라',
+};
+

@@ -1,33 +1,137 @@
 {
   "commander": {
     "maxHp": 5,
-    "speed": 220,
+    "speed": 60,
     "atkCD": 400,
     "dashCD": 1400,
     "dashDuration": 180,
     "dashSpeed": 480,
     "iframes": 1200,
     "reformCD": 2200,
-    "reformThreshold": 220
+    "reformThreshold": 220,
+    "reformSpeedMult": 2.8,
+    "reformArriveRadius": 18,
+    "reformBrakeRadius": 70,
+    "reformStaggerInterval": 20,
+    "reformDuration": 550,
+    "commitAngle": 35,
+    "commitSpeedThreshold": 10,
+    "commitHoldTime": 180,
+    "commitSlerpFactor": 0.6,
+    "commitCooldown": 250,
+    "chargeDuration": 600,
+    "chargeRingStart": 20,
+    "chargeRingMax": 60,
+    "chargeDamageMult": 3
   },
   "units": {
-    "vanguard": { "maxHp": 2, "dmg": 1, "atkCD": 650, "unitSpeed": 200, "range": 50, "engageRadius": 170, "returnRadius": 220 },
-    "archer": { "maxHp": 1, "dmg": 1, "atkCD": 900, "unitSpeed": 150, "range": 420, "engageRadius": 120, "returnRadius": 160 },
-    "cavalry": { "maxHp": 2, "dmg": 1, "atkCD": 775, "unitSpeed": 300, "range": 65, "engageRadius": 160, "returnRadius": 210 }
+    "vanguard": {
+      "maxHp": 100,
+      "dmg": 3,
+      "atkCD": 650,
+      "unitSpeed": 200,
+      "range": 50,
+      "engageRadius": 170,
+      "returnRadius": 220,
+      "lineDepth": 160,
+      "holdIn": 35,
+      "holdOut": 55,
+      "vanguardGapNormal": 60,
+      "vanguardGapStill": 35,
+      "holdSpeedMult": 0.7,
+      "targetLockMs": 800,
+      "protectR": 220,
+      "protectR2": 240,
+      "protectROut": 300,
+      "breachDepth": 60,
+      "interceptPush": 80,
+      "guardThreatMs": 120,
+      "guardThreatSpeedMult": 0.6
+    },
+    "archer": {
+      "maxHp": 50,
+      "dmg": 3,
+      "atkCD": 900,
+      "unitSpeed": 150,
+      "range": 420,
+      "engageRadius": 120,
+      "returnRadius": 160,
+      "rank0Depth": 100,
+      "rank1Depth": 150,
+      "slotGap": 70,
+      "maxSpread": 240,
+      "deadZone": 120,
+      "retreatSpeedMult": 1.5,
+      "normalSpeedMult": 0.5
+    },
+    "cavalry": {
+      "maxHp": 100,
+      "dmg": 3,
+      "atkCD": 775,
+      "unitSpeed": 300,
+      "range": 65,
+      "engageRadius": 160,
+      "returnRadius": 210,
+      "gapSpacing": 120,
+      "gapOffset": -40,
+      "gapCalcInterval": 200,
+      "seekInterceptDist": 160,
+      "interceptLerp": 0.55,
+      "egressDepth": 260,
+      "gapScanRadius": 140,
+      "gapTargetRadius": 260,
+      "interceptTimeout": 2000,
+      "interceptSpeedMult": 1.3,
+      "cavDisruptDuration": 700,
+      "cavDisruptMaxHits": 2,
+      "cavEgressDuration": 1000,
+      "maxConcurrentIntercepts": 2,
+      "cavStickyMs": 1200,
+      "cavImproveDelta": 1.25,
+      "cavGapRIn": 240,
+      "cavGapROut": 320,
+      "cavSeenMs": 200,
+      "cavSlotAlpha": 0.2,
+      "cavAccel": 2800,
+      "cavInterceptMaxLateral": 140,
+      "cavInterceptFixedDepth": 60
+    }
   },
   "enemies": {
     "chaser": {
-      "maxHp": 2, "touchDmg": 1, "speed": 75,
-      "lineHoldDist": 350, "cohesionRadius": 140, "slotSpacing": 45, "lineHoldSpeedMult": 0.5
+      "maxHp": 20,
+      "touchDmg": 3,
+      "speed": 40,
+      "speedRange": 20,
+      "lineHoldDist": 350,
+      "cohesionRadius": 140,
+      "slotSpacing": 45,
+      "lineHoldSpeedMult": 0.5
     },
     "dasher": {
-      "maxHp": 2, "touchDmg": 1, "speed": 95,
-      "dashWindup": 450, "dashSpeed": 550, "dashDuration": 280,
-      "disruptDuration": 900, "egressDuration": 1200, "egressSpeed": 95, "penetrationDist": 220
+      "maxHp": 20,
+      "touchDmg": 3,
+      "speed": 60,
+      "speedRange": 0,
+      "patrolDuration": 2500,
+      "dashWindup": 450,
+      "dashSpeed": 550,
+      "dashDuration": 280,
+      "flashInterval": 80,
+      "telegraphLength": 200,
+      "cooldownDuration": 1200,
+      "penetrationDist": 220,
+      "disruptDuration": 900,
+      "egressDuration": 1200,
+      "egressSpeed": 95
     },
     "buffer": {
-      "maxHp": 3, "touchDmg": 0, "speed": 48,
-      "auraRadius": 120, "auraSpeedBoost": 1.4
+      "maxHp": 30,
+      "touchDmg": 0,
+      "speed": 30,
+      "speedRange": 15,
+      "auraRadius": 120,
+      "auraSpeedBoost": 1.4
     }
   },
   "game": {
@@ -37,7 +141,142 @@
     "platoonSizeBuffer": 5,
     "volleyCycle": 900,
     "volleyWindow": 120,
-    "commandAuraRadius": 260
+    "commandAuraRadius": 260,
+    "squadSizeVanguard": 8,
+    "squadSizeArcher": 8,
+    "squadSizeCavalry": 4,
+    "separationDist": 20,
+    "separationForce": 25,
+    "formingExitDist": 20,
+    "anchorDecayVanguard": 8,
+    "anchorDecayArcher": 6,
+    "anchorDecayCavalry": 9,
+    "flagPenetrationRadius": 40,
+    "flagPenetrationThreshold": 2,
+    "cameraZoomProximity": 200,
+    "cameraZoomEnemyCount": 3,
+    "cameraZoomIn": 0.9,
+    "cameraZoomNormal": 1,
+    "cameraZoomEase": 4,
+    "encounterStartSec": 32,
+    "encounterEndSec": 42,
+    "encounterEarlyExitSec": 33,
+    "zoneRadius": 80,
+    "markExplosionRadius": 80,
+    "minAttackCD": 100,
+    "minDashCD": 400,
+    "armySpeedBoostMult": 1.5
   },
-  "meta": { "version": 1 }
+  "meta": {
+    "version": 1
+  },
+  "modifiers": {
+    "items": {
+      "heavyBlade": {
+        "atkCdBonus": 200,
+        "knockForce": 150,
+        "knockDur": 150
+      },
+      "calmMind": {
+        "atkCdReduction": 100,
+        "dashCdBonus": 300,
+        "atkCdMult": 0.8
+      },
+      "sprintBoots": {
+        "speedMult": 1.2,
+        "dashCdReduction": 200,
+        "hpPenalty": 1
+      },
+      "ironSkin": {
+        "speedMult": 0.8
+      },
+      "antiDashPlate": {
+        "iframes": 2000
+      },
+      "zoneCore": {
+        "durationMult": 1.5,
+        "atkCdBonusOut": 200,
+        "dashCdReductionIn": 400
+      },
+      "hunterCharm": {
+        "slowFactor": 0.4,
+        "slowDur": 1500
+      },
+      "bloodOath": {
+        "restoreKills": 4
+      },
+      "fragilePower": {
+        "hpPenalty": 2,
+        "unitHpPenalty": 1,
+        "extraDashIframes": 100
+      }
+    },
+    "supports": {
+      "closeShock": {
+        "atkCdBonus": 150,
+        "freezeDur": 500,
+        "unitFreezeDur": 300
+      },
+      "zoneAnchor": {
+        "atkReduction": 0.3,
+        "atkIncrease": 0.2,
+        "duration": 4000
+      },
+      "dashPrime": {
+        "knockForce": 200,
+        "knockDur": 200,
+        "window": 1000,
+        "armyBoostDur": 1000
+      },
+      "dashTax": {
+        "buffDur": 1500
+      },
+      "farSnare": {
+        "slowFactor": 0.4,
+        "slowDur": 1500,
+        "unitSlowFactor": 0.3,
+        "unitSlowDur": 1000
+      },
+      "rhythmWindow": {
+        "cycleDur": 3700,
+        "powerStart": 3000
+      }
+    },
+    "keystones": {
+      "closePact": {
+        "auraRadiusMult": 0.77
+      },
+      "momentumMode": {
+        "movingMult": 1.5,
+        "stillMult": 0.5,
+        "dasherWindupMult": 1.2
+      },
+      "stillnessStance": {
+        "anchorLinger": 2000
+      },
+      "kitingVow": {
+        "closeAtkCdMult": 2,
+        "farDashCdMult": 0.7,
+        "minDistToMark": 200
+      }
+    },
+    "nodes": {
+      "vanguardSlowOnHit": {
+        "slowFactor": 0.3,
+        "slowDur": 1000
+      },
+      "arrowPull": {
+        "pullDist": 100,
+        "pullForce": 60,
+        "pullDur": 1000
+      },
+      "markKillReward": {
+        "buffDur": 3000
+      },
+      "moveRotation": {
+        "commitAngle": 25,
+        "cooldown": 350
+      }
+    }
+  }
 }

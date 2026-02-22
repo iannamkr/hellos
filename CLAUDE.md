@@ -142,7 +142,7 @@ All textures are generated at runtime in `GameScene._createTextures()` using `th
 - **Items** (8종): `heavyBlade`, `calmMind`, `sprintBoots`, `ironSkin`, `antiDashPlate`, `zoneCore`, `hunterCharm`, `bloodOath`, `fragilePower`
 - **Supports** (6종): `closeShock`, `zoneAnchor`, `dashPrime`, `dashTax`, `farSnare`, `rhythmWindow`
 - **Keystones** (4종): `closePact`, `momentumMode`, `stillnessStance`, `kitingVow`
-- **Nodes** (4종): `A5`, `B5`, `D4`, `F3`
+- **Nodes** (16종): `vanguardSlowOnHit`, `arrowPull`, `markKillReward`, `moveRotation`, `stillReward`, `moveStartPenalty`, `fortressDoctrine`, `stillCombatBan`, `noBackwalk`, `skirmishDoctrine`, `ironWall`, `markLock`, `executionDoctrine`, `archerMinRange`, `archerGuard`, `cavalryDoctrine`
 
 GameScene에서 접근 패턴:
 ```ts

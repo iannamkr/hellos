@@ -13,6 +13,9 @@ import { POLICIES, moveToSlot } from '../army/SquadPolicy';
 import { COLOR } from '../colors';
 import type { BalanceData } from '../../shared/balance/schema';
 import { loadBalance } from '../../shared/balance/storage';
+import { DEFAULT_BALANCE } from '../../shared/balance/defaults';
+
+const DEF = DEFAULT_BALANCE;
 
 const CLOSE_RANGE = 120;
 const SEED = 1337;
@@ -62,17 +65,17 @@ export class GameScene extends Phaser.Scene {
 
   // Tree node runtime state
   private activeNodes = new Set<NodeId>();
-  private d1LockUntil = 0;      // D1 mark change lockout
-  private d4BuffUntil = 0;      // D4 execution → archer priority shift
-  private d6ExecTargets = new Map<EnemyBase, number>(); // D6 2s forced exit
-  private e4StillTimer = 0;     // E4 still duration tracker
-  private e4WeakenUntil = 0;    // E4 flank weaken window
-  private e5MoveLockUntil = 0;  // E5 archer fire lock after moving
+  private markLockUntil = 0;      // D1 mark change lockout
+  private markKillRewardBuffUntil = 0;      // D4 execution → archer priority shift
+  private executionDoctrineTargets = new Map<EnemyBase, number>(); // D6 2s forced exit
+  private stillRewardTimer = 0;     // E4 still duration tracker
+  private stillRewardWeakenUntil = 0;    // E4 flank weaken window
+  private moveStartPenaltyUntil = 0;  // E5 archer fire lock after moving
   private f5BackDirTimer = 0;   // F5 reverse movement tracker
-  private b4BackSealUntil = 0;  // B4 back channel seal
-  private c6BackSealUntil = 0;  // C6 back channel seal
-  private e6BackSealUntil = 0;  // E6 back channel seal
-  private f6BackSealUntil = 0;  // F6 back channel seal
+  private archerGuardBackSealUntil = 0;  // B4 back channel seal
+  private cavalryDoctrineBackSealUntil = 0;  // C6 back channel seal
+  private fortressBackSealUntil = 0;  // E6 back channel seal
+  private skirmishBackSealUntil = 0;  // F6 back channel seal
   private a5FirstHitMap = new Map<EnemyBase, boolean>(); // A5 first hit tracker
   private nodeHudText!: Phaser.GameObjects.Text;
 
@@ -182,11 +185,19 @@ export class GameScene extends Phaser.Scene {
   private volleyCycleStart = 0;
   private archerFiredThisWindow: Set<ArmyUnit> = new Set();
 
-  // committedDir — slowly-updating formation direction
+  // aimDir — direction commander is looking (cursor-based, updated every frame)
+  private aimDirX = 0;
+  private aimDirY = 1;
+
+  // committedDir — slowly-updating formation direction (rate-limited toward aimDir)
   private committedDirX = 0;
   private committedDirY = 1;
   private committedPendingSince = 0;
   private committedCooldownUntil = 0;
+
+  // lineAnchor — persistent front-line position (lerped in auto, snapped in reform)
+  private lineAnchorX = 960;
+  private lineAnchorY = 540;
 
   // anchorPos — per-squad inertial position
   private anchorPosV = { x: 960, y: 540 };
@@ -308,10 +319,14 @@ export class GameScene extends Phaser.Scene {
     this.platoonFormCycle = 0;
     this.volleyCycleStart = 0;
     this.archerFiredThisWindow = new Set();
+    this.aimDirX = 0;
+    this.aimDirY = 1;
     this.committedDirX = 0;
     this.committedDirY = 1;
     this.committedPendingSince = 0;
     this.committedCooldownUntil = 0;
+    this.lineAnchorX = 960;
+    this.lineAnchorY = 540;
     this.anchorPosV = { x: 960, y: 540 };
     this.anchorPosA = { x: 960, y: 540 };
     this.anchorPosC = { x: 960, y: 540 };
@@ -326,17 +341,17 @@ export class GameScene extends Phaser.Scene {
     this.cameraTargetZoom = 1.0;
     // Tree nodes
     this.activeNodes = new Set(this.build.nodes || []);
-    this.d1LockUntil = 0;
-    this.d4BuffUntil = 0;
-    this.d6ExecTargets = new Map();
-    this.e4StillTimer = 0;
-    this.e4WeakenUntil = 0;
-    this.e5MoveLockUntil = 0;
+    this.markLockUntil = 0;
+    this.markKillRewardBuffUntil = 0;
+    this.executionDoctrineTargets = new Map();
+    this.stillRewardTimer = 0;
+    this.stillRewardWeakenUntil = 0;
+    this.moveStartPenaltyUntil = 0;
     this.f5BackDirTimer = 0;
-    this.b4BackSealUntil = 0;
-    this.c6BackSealUntil = 0;
-    this.e6BackSealUntil = 0;
-    this.f6BackSealUntil = 0;
+    this.archerGuardBackSealUntil = 0;
+    this.cavalryDoctrineBackSealUntil = 0;
+    this.fortressBackSealUntil = 0;
+    this.skirmishBackSealUntil = 0;
     this.a5FirstHitMap = new Map();
   }
 
@@ -436,7 +451,7 @@ export class GameScene extends Phaser.Scene {
       const fdx = ptr.worldX - this.player.x;
       const fdy = ptr.worldY - this.player.y;
       const fdLen = Math.sqrt(fdx * fdx + fdy * fdy);
-      if (fdLen > 10) {
+      if (fdLen > (this.balanceData.game.aimDeadZone ?? DEF.game.aimDeadZone!)) {
         this.reformFrozenDirX = fdx / fdLen;
         this.reformFrozenDirY = fdy / fdLen;
       } else {
@@ -486,9 +501,21 @@ export class GameScene extends Phaser.Scene {
     }
     this.facingAngle = Math.atan2(this.moveDirY, this.moveDirX);
 
-    // committedDir + anchorPos
+    // aimDir: direction from commander to cursor (direction only, NOT position)
+    const ptr = this.input.activePointer;
+    const adx = ptr.worldX - this.player.x;
+    const ady = ptr.worldY - this.player.y;
+    const adLen = Math.sqrt(adx * adx + ady * ady);
+    const aimDZ = this.balanceData.game.aimDeadZone ?? DEF.game.aimDeadZone!;
+    if (adLen > aimDZ) {
+      this.aimDirX = adx / adLen;
+      this.aimDirY = ady / adLen;
+    }
+
+    // committedDir + anchorPos + lineAnchor
     this._updateCommittedDir();
     this._updateAnchorPos();
+    this._updateLineAnchor();
 
     if (this.player.dashActivatedThisFrame) this._onDashStart();
     if (this.player.dashJustEnded) this._onDashEnd();
@@ -875,7 +902,7 @@ export class GameScene extends Phaser.Scene {
     // Tree node: commander attack blocked?
     if (this._isCommanderAttackBlocked()) return;
     // D1: mark change lockout
-    if (this._hasNode('D1') && this.time.now < this.d1LockUntil) return;
+    if (this._hasNode('D1') && this.time.now < this.markLockUntil) return;
 
     const skill = getSkill(this.build.skill);
     let arcDeg = skill.arcDeg;
@@ -938,7 +965,7 @@ export class GameScene extends Phaser.Scene {
     if (markCandidate) {
       // D1: mark change → 2s commander attack lockout
       if (this._hasNode('D1') && this.tacticalMarkTarget && this.tacticalMarkTarget !== markCandidate && this.tacticalMarkTarget.active) {
-        this.d1LockUntil = this.time.now + 2000;
+        this.markLockUntil = this.time.now + (this.balanceData.modifiers.nodes.markLock?.lockDur ?? DEF.modifiers.nodes.markLock!.lockDur);
       }
       this.tacticalMarkTarget = markCandidate;
       this.tacticalMarkUntil = this.time.now + 3000;
@@ -1205,71 +1232,30 @@ export class GameScene extends Phaser.Scene {
   // ═══════════════════════════════════════════════════════════════
 
   private _updateCommittedDir(): void {
-    // Freeze committedDir during reform
+    // Freeze committedDir during reform (snapshot direction)
     if (this.reformActive) {
       this.committedDirX = this.reformFrozenDirX;
       this.committedDirY = this.reformFrozenDirY;
-      this.committedPendingSince = 0;
       return;
     }
 
-    const body = this.player.body as Phaser.Physics.Arcade.Body;
-    const speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
-    const now = this.time.now;
-    const cmd = this.balanceData.commander;
+    // Auto mode: rate-limited rotation toward aimDir (cursor direction, NOT position)
+    const dtSec = this.game.loop.delta / 1000;
+    const maxTurn = (this.balanceData.game.dirTurnRate ?? DEF.game.dirTurnRate!) * dtSec;
 
-    // Speed < threshold: maintain current committed
-    if (speed < (cmd.commitSpeedThreshold ?? 10)) {
-      this.committedPendingSince = 0;
-      return;
-    }
+    const curAngle = Math.atan2(this.committedDirY, this.committedDirX);
+    const tgtAngle = Math.atan2(this.aimDirY, this.aimDirX);
+    let diff = tgtAngle - curAngle;
+    // Normalize to [-PI, PI]
+    if (diff > Math.PI) diff -= 2 * Math.PI;
+    if (diff < -Math.PI) diff += 2 * Math.PI;
 
-    // Desired direction from velocity
-    const dx = body.velocity.x / speed;
-    const dy = body.velocity.y / speed;
+    if (Math.abs(diff) < 0.001) return; // already aligned
 
-    // Angle between committed and desired
-    const dot = this.committedDirX * dx + this.committedDirY * dy;
-    const clampedDot = Math.min(1, Math.max(-1, dot));
-    const angleDeg = Math.acos(clampedDot) * (180 / Math.PI);
-
-    // F3: overrides commit angle
-    const mn = this.balanceData.modifiers.nodes;
-    const commitAngle = this._hasNode('F3')
-      ? (mn.F3?.commitAngle ?? 25)
-      : (cmd.commitAngle ?? 35);
-    if (angleDeg < commitAngle) {
-      this.committedPendingSince = 0;
-      return;
-    }
-
-    // In cooldown: don't update
-    if (now < this.committedCooldownUntil) {
-      this.committedPendingSince = 0;
-      return;
-    }
-
-    // >= 35° for 0.18s → commit via slerp
-    if (this.committedPendingSince === 0) {
-      this.committedPendingSince = now;
-      return;
-    }
-
-    if (now - this.committedPendingSince >= (cmd.commitHoldTime ?? 180)) {
-      // slerp(committed, desired, factor)
-      const t = cmd.commitSlerpFactor ?? 0.6;
-      let nx = this.committedDirX * (1 - t) + dx * t;
-      let ny = this.committedDirY * (1 - t) + dy * t;
-      const len = Math.sqrt(nx * nx + ny * ny);
-      if (len > 0) { nx /= len; ny /= len; }
-      this.committedDirX = nx;
-      this.committedDirY = ny;
-      this.committedPendingSince = 0;
-      // F3: overrides commit cooldown
-      this.committedCooldownUntil = now + (this._hasNode('F3')
-        ? (mn.F3?.cooldown ?? 350)
-        : (cmd.commitCooldown ?? 250));
-    }
+    const clamped = Math.max(-maxTurn, Math.min(maxTurn, diff));
+    const newAngle = curAngle + clamped;
+    this.committedDirX = Math.cos(newAngle);
+    this.committedDirY = Math.sin(newAngle);
   }
 
   private _updateAnchorPos(): void {
@@ -1288,6 +1274,15 @@ export class GameScene extends Phaser.Scene {
     const factorC = 1 - Math.exp(-dt * (g.anchorDecayCavalry ?? 9));
     this.anchorPosC.x += (px - this.anchorPosC.x) * factorC;
     this.anchorPosC.y += (py - this.anchorPosC.y) * factorC;
+  }
+
+  private _updateLineAnchor(): void {
+    // lineAnchor = playerPos + formationDir * lineDepth (always commander-based)
+    const vLineDepth = this.balanceData.units.vanguard.lineDepth ?? 160;
+    const dirX = this.reformActive ? this.reformFrozenDirX : this.committedDirX;
+    const dirY = this.reformActive ? this.reformFrozenDirY : this.committedDirY;
+    this.lineAnchorX = this.player.x + dirX * vLineDepth;
+    this.lineAnchorY = this.player.y + dirY * vLineDepth;
   }
 
   private _updateFlag(): void {
@@ -1435,11 +1430,8 @@ export class GameScene extends Phaser.Scene {
       ? { x: this.reformFrozenDirX, y: this.reformFrozenDirY }
       : { x: this.committedDirX, y: this.committedDirY };
 
-    const vLineDepth = this.balanceData.units.vanguard.lineDepth ?? 160;
-    const lineAnchor = {
-      x: this.flagX + dir.x * vLineDepth,
-      y: this.flagY + dir.y * vLineDepth,
-    };
+    // lineAnchor: updated each frame by _updateLineAnchor() (FLAG-based auto / commander-based reform)
+    const lineAnchor = { x: this.lineAnchorX, y: this.lineAnchorY };
 
     const vanguardPositions = this.armyUnits
       .filter(u => u.active && u.squadType === 'vanguard')
@@ -1481,11 +1473,13 @@ export class GameScene extends Phaser.Scene {
       anchorV: this.anchorPosV,
       archerLeader: this._getArcherLeader(),
       k5Target: (this.k5LastTarget && this.k5LastTarget.active) ? this.k5LastTarget : null,
-      d4Active: this._hasNode('D4') && now < this.d4BuffUntil,
+      d4Active: this._hasNode('D4') && now < this.markKillRewardBuffUntil,
       vanguardLowHp: this._isVanguardLowHp(),
       vanguardBalance: this.balanceData.units.vanguard,
       archerBalance: this.balanceData.units.archer,
       cavalryBalance: this.balanceData.units.cavalry,
+      gameBalance: this.balanceData.game,
+      modifierNodes: this.balanceData.modifiers.nodes,
       archerFired: this.archerFiredThisWindow,
       getAttackCD: (u) => this._getArmyAttackCD(u),
     };
@@ -1705,7 +1699,7 @@ export class GameScene extends Phaser.Scene {
     if (this._hasNode('A5') && unit.squadType === 'vanguard') {
       if (!this.a5FirstHitMap.has(target)) {
         this.a5FirstHitMap.set(target, true);
-        const a5 = this.balanceData.modifiers.nodes.A5;
+        const a5 = this.balanceData.modifiers.nodes.vanguardSlowOnHit;
         target.applySlow(a5?.slowFactor ?? 0.3, a5?.slowDur ?? 1000);
         dmg = 0;
       }
@@ -1727,11 +1721,11 @@ export class GameScene extends Phaser.Scene {
       }
       // D4: mark target killed → archer priority shift
       if (this._hasNode('D4') && target === this.tacticalMarkTarget) {
-        this.d4BuffUntil = this.time.now + (this.balanceData.modifiers.nodes.D4?.buffDur ?? 3000);
+        this.markKillRewardBuffUntil = this.time.now + (this.balanceData.modifiers.nodes.markKillReward?.buffDur ?? 3000);
       }
       // D6: mark target first hit → start 2s forced exit timer
-      if (this._hasNode('D6') && target === this.tacticalMarkTarget && !this.d6ExecTargets.has(target)) {
-        this.d6ExecTargets.set(target, this.time.now);
+      if (this._hasNode('D6') && target === this.tacticalMarkTarget && !this.executionDoctrineTargets.has(target)) {
+        this.executionDoctrineTargets.set(target, this.time.now);
       }
     }
 
@@ -1747,7 +1741,7 @@ export class GameScene extends Phaser.Scene {
 
       // B5: arrow hit = pull toward FLAG
       if (this._hasNode('B5') && target.active) {
-        const b5 = this.balanceData.modifiers.nodes.B5;
+        const b5 = this.balanceData.modifiers.nodes.arrowPull;
         const angle = Phaser.Math.Angle.Between(target.x, target.y, this.flagX, this.flagY);
         target.applyKnockback(
           target.x - Math.cos(angle) * (b5?.pullDist ?? 100),
@@ -1829,7 +1823,7 @@ export class GameScene extends Phaser.Scene {
           // C5: cavalry dies but dasher gets 2s stun
           if (this._hasNode('C5')) {
             this._damageUnit(u, 999); // kill cavalry
-            e.applyFreeze(2000);
+            e.applyFreeze(this.balanceData.modifiers.nodes.cavalryDoctrine?.chaserFreezeDur ?? DEF.modifiers.nodes.cavalryDoctrine!.chaserFreezeDur);
           } else {
             // Damage the intercepting cavalry unit
             this._damageUnit(u, 1);
@@ -1844,7 +1838,7 @@ export class GameScene extends Phaser.Scene {
 
           // C6: intercept → back channel 2s seal
           if (this._hasNode('C6')) {
-            this.c6BackSealUntil = this.time.now + 2000;
+            this.cavalryDoctrineBackSealUntil = this.time.now + (this.balanceData.modifiers.nodes.cavalryDoctrine?.backSealDur ?? DEF.modifiers.nodes.cavalryDoctrine!.backSealDur);
           }
 
           if (u.active) u.isReturning = true;
@@ -1913,12 +1907,12 @@ export class GameScene extends Phaser.Scene {
     // Check if all units of this type are dead → enter reform
     const alive = this.armyUnits.filter(u => u.active && u.squadType === type);
     if (alive.length === 0) {
-      this.squadReformUntil[type] = now + 10000;
+      this.squadReformUntil[type] = now + (this.balanceData.game.squadReformDur ?? DEF.game.squadReformDur!);
     }
 
     // B4: archer damaged → back channel 2s seal
     if (this._hasNode('B4') && type === 'archer') {
-      this.b4BackSealUntil = now + 2000;
+      this.archerGuardBackSealUntil = now + (this.balanceData.modifiers.nodes.archerGuard?.backSealDur ?? DEF.modifiers.nodes.archerGuard!.backSealDur);
     }
 
     // Flash effect
@@ -1996,7 +1990,7 @@ export class GameScene extends Phaser.Scene {
     for (const type of ['vanguard', 'archer', 'cavalry'] as SquadType[]) {
       if (this.squadReformUntil[type] > 0 && now >= this.squadReformUntil[type]) {
         this.squadReformUntil[type] = 0;
-        this.squadProtectUntil[type] = now + 2000;
+        this.squadProtectUntil[type] = now + (this.balanceData.game.squadProtectDur ?? DEF.game.squadProtectDur!);
         // Revive all dead units of this type with 1 HP
         for (const u of this.armyUnits) {
           if (u.squadType === type && !u.active) {
@@ -2115,20 +2109,21 @@ export class GameScene extends Phaser.Scene {
     // ── E4: 정지 유도 보상 — 2s still → weaken flank 4s ──
     if (this._hasNode('E4')) {
       if (!p.isMoving) {
-        this.e4StillTimer += dt;
-        if (this.e4StillTimer >= 2000) {
-          this.e4StillTimer = 0;
-          this.e4WeakenUntil = now + 4000;
+        this.stillRewardTimer += dt;
+        const e4n = this.balanceData.modifiers.nodes.stillReward;
+        if (this.stillRewardTimer >= (e4n?.stillDur ?? DEF.modifiers.nodes.stillReward!.stillDur)) {
+          this.stillRewardTimer = 0;
+          this.stillRewardWeakenUntil = now + (e4n?.weakenDur ?? DEF.modifiers.nodes.stillReward!.weakenDur);
         }
       } else {
-        this.e4StillTimer = 0;
+        this.stillRewardTimer = 0;
       }
     }
 
     // ── E5: 정지 해제 페널티 — after stop, 1s no archer fire ──
     if (this._hasNode('E5') && p.isMoving && !p.isDashing) {
       // Started moving → lock archers
-      this.e5MoveLockUntil = now + 1000;
+      this.moveStartPenaltyUntil = now + (this.balanceData.modifiers.nodes.moveStartPenalty?.archerLockDur ?? DEF.modifiers.nodes.moveStartPenalty!.archerLockDur);
     }
 
     // ── F5: 역주행 금지 — moving against committedDir >1s → clamp ──
@@ -2136,15 +2131,18 @@ export class GameScene extends Phaser.Scene {
       const body = p.body as Phaser.Physics.Arcade.Body;
       const vx = body.velocity.x, vy = body.velocity.y;
       const len = Math.sqrt(vx * vx + vy * vy);
-      if (len > 10) {
+      const f5n = this.balanceData.modifiers.nodes.noBackwalk;
+      const f5d = DEF.modifiers.nodes.noBackwalk!;
+      if (len > (f5n?.velThreshold ?? f5d.velThreshold)) {
         const dot = (vx / len) * this.committedDirX + (vy / len) * this.committedDirY;
-        if (dot < -0.5) {
+        if (dot < -(f5n?.backDot ?? f5d.backDot)) {
           this.f5BackDirTimer += dt;
-          if (this.f5BackDirTimer > 1000) {
+          if (this.f5BackDirTimer > (f5n?.backDirDur ?? f5d.backDirDur)) {
             // Clamp: remove backward component
+            const cMult = f5n?.clampMult ?? f5d.clampMult;
             body.setVelocity(
-              vx - (vx / len) * dot * len * 0.8,
-              vy - (vy / len) * dot * len * 0.8,
+              vx - (vx / len) * dot * len * cMult,
+              vy - (vy / len) * dot * len * cMult,
             );
           }
         } else {
@@ -2164,29 +2162,31 @@ export class GameScene extends Phaser.Scene {
     // ── E6: 성채 교리 — disable dash + still → back seal ──
     if (this._hasNode('E6')) {
       if (!p.isMoving) {
-        this.e6BackSealUntil = now + 500;
+        this.fortressBackSealUntil = now + (this.balanceData.modifiers.nodes.fortressDoctrine?.backSealDur ?? DEF.modifiers.nodes.fortressDoctrine!.backSealDur);
       }
     }
 
     // ── F6: 유격 교리 — outside FLAG 260px → back seal ──
     if (this._hasNode('F6')) {
+      const f6n = this.balanceData.modifiers.nodes.skirmishDoctrine;
+      const f6d = DEF.modifiers.nodes.skirmishDoctrine!;
       const dist = Phaser.Math.Distance.Between(p.x, p.y, this.flagX, this.flagY);
-      if (dist > 260) {
-        this.f6BackSealUntil = now + 500;
+      if (dist > (f6n?.flagDist ?? f6d.flagDist)) {
+        this.skirmishBackSealUntil = now + (f6n?.backSealDur ?? f6d.backSealDur);
       }
     }
 
     // ── D6: 집행 교리 — forced exit timer on marked targets ──
     if (this._hasNode('D6')) {
-      for (const [enemy, startTime] of this.d6ExecTargets) {
-        if (!enemy.active) { this.d6ExecTargets.delete(enemy); continue; }
-        if (now - startTime >= 2000) {
+      for (const [enemy, startTime] of this.executionDoctrineTargets) {
+        if (!enemy.active) { this.executionDoctrineTargets.delete(enemy); continue; }
+        if (now - startTime >= (this.balanceData.modifiers.nodes.executionDoctrine?.exitDur ?? DEF.modifiers.nodes.executionDoctrine!.exitDur)) {
           // Force exit: kill the enemy
           if (enemy.active) {
             enemy.takeDamage(999);
             this._onEnemyKilled(enemy);
           }
-          this.d6ExecTargets.delete(enemy);
+          this.executionDoctrineTargets.delete(enemy);
         }
       }
     }
@@ -2200,7 +2200,7 @@ export class GameScene extends Phaser.Scene {
     if (this._hasNode('F1')) {
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       const spd = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
-      if (spd < 10) return true;
+      if (spd < (this.balanceData.modifiers.nodes.stillCombatBan?.speedThreshold ?? DEF.modifiers.nodes.stillCombatBan!.speedThreshold)) return true;
     }
     // D6: no mark → army OFF
     if (this._hasNode('D6') && !this.tacticalMarkTarget) return true;
@@ -2212,12 +2212,12 @@ export class GameScene extends Phaser.Scene {
     // A6: outside FLAG 260px
     if (this._hasNode('A6')) {
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.flagX, this.flagY);
-      if (dist > 260) return true;
+      if (dist > (this.balanceData.modifiers.nodes.ironWall?.flagDist ?? DEF.modifiers.nodes.ironWall!.flagDist)) return true;
     }
     // F6: inside FLAG 260px
     if (this._hasNode('F6')) {
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.flagX, this.flagY);
-      if (dist <= 260) return true;
+      if (dist <= (this.balanceData.modifiers.nodes.skirmishDoctrine?.flagDist ?? DEF.modifiers.nodes.skirmishDoctrine!.flagDist)) return true;
     }
     // B6: commander deal 0 (handled as damage 0, not blocked)
     // D1: mark change lockout (checked separately)
@@ -2227,7 +2227,7 @@ export class GameScene extends Phaser.Scene {
   /** Check if archer fire is suppressed by tree nodes right now. */
   private _isArcherFireSuppressed(): boolean {
     // E5: 1s after stopping
-    if (this._hasNode('E5') && this.time.now < this.e5MoveLockUntil) return true;
+    if (this._hasNode('E5') && this.time.now < this.moveStartPenaltyUntil) return true;
     // F2: stationary → archers OFF
     if (this._hasNode('F2') && !this.player.isMoving) return true;
     return false;
@@ -2236,10 +2236,10 @@ export class GameScene extends Phaser.Scene {
   /** Check if a back channel spawn is sealed by any tree node. */
   private _isBackChannelSealed(): boolean {
     const now = this.time.now;
-    if (this._hasNode('B4') && now < this.b4BackSealUntil) return true;
-    if (this._hasNode('C6') && now < this.c6BackSealUntil) return true;
-    if (this._hasNode('E6') && now < this.e6BackSealUntil) return true;
-    if (this._hasNode('F6') && now < this.f6BackSealUntil) return true;
+    if (this._hasNode('B4') && now < this.archerGuardBackSealUntil) return true;
+    if (this._hasNode('C6') && now < this.cavalryDoctrineBackSealUntil) return true;
+    if (this._hasNode('E6') && now < this.fortressBackSealUntil) return true;
+    if (this._hasNode('F6') && now < this.skirmishBackSealUntil) return true;
     return false;
   }
 
@@ -2302,16 +2302,19 @@ export class GameScene extends Phaser.Scene {
     const px = this.anchorPosV.x, py = this.anchorPosV.y;
     const fx = this.committedDirX, fy = this.committedDirY;
 
-    // Count vanguards in f=+160±60 zone (forward distance 100..220)
+    const gfl = this.balanceData.game;
+    const flFwdMin = gfl.frontLineFwdMin ?? DEF.game.frontLineFwdMin!;
+    const flFwdMax = gfl.frontLineFwdMax ?? DEF.game.frontLineFwdMax!;
+    const flMinCount = gfl.frontLineMinCount ?? DEF.game.frontLineMinCount!;
     let inZone = 0;
     for (const u of vUnits) {
       const dx = u.x - px;
       const dy = u.y - py;
       const fwd = dx * fx + dy * fy;
-      if (fwd >= 100 && fwd <= 220) inZone++;
+      if (fwd >= flFwdMin && fwd <= flFwdMax) inZone++;
     }
 
-    if (inZone >= 4) {
+    if (inZone >= flMinCount) {
       // 4+ vanguards in front zone — intact
       if (now >= this.frontLineCollapseUntil) {
         this.frontLineIntact = true;
@@ -2320,7 +2323,7 @@ export class GameScene extends Phaser.Scene {
       // Not enough vanguards in zone — collapsed
       if (this.frontLineIntact) {
         this.frontLineIntact = false;
-        this.frontLineCollapseUntil = now + 6000;
+        this.frontLineCollapseUntil = now + (this.balanceData.game.frontLineCollapseDur ?? DEF.game.frontLineCollapseDur!);
       }
     }
   }
@@ -2413,7 +2416,7 @@ export class GameScene extends Phaser.Scene {
       if (this.frontLineIntact) {
         const vanguards = this.armyUnits.filter(u => u.active && u.squadType === 'vanguard');
         for (const v of vanguards) {
-          if (Phaser.Math.Distance.Between(enemy.x, enemy.y, v.x, v.y) < 100) {
+          if (Phaser.Math.Distance.Between(enemy.x, enemy.y, v.x, v.y) < (this.balanceData.game.frontLineEngageDist ?? DEF.game.frontLineEngageDist!)) {
             return { x: v.x, y: v.y };
           }
         }
@@ -2656,7 +2659,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // E4: flank weaken window → redirect flank to front
-    if (this._hasNode('E4') && this.time.now < this.e4WeakenUntil && (channel === 'flankL' || channel === 'flankR')) {
+    if (this._hasNode('E4') && this.time.now < this.stillRewardWeakenUntil && (channel === 'flankL' || channel === 'flankR')) {
       channel = 'front';
     }
 
@@ -3408,6 +3411,26 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(COLOR.cavalry, 0.5);
       g.fillCircle(u.x + 10, u.y - 10, 5);
       // Use tiny text-like indicator: S=seek, I=intercept, D=disrupt, E=egress
+    }
+
+    // 14. Vanguard protect radii + intercept markers
+    const vb = this.balanceData.units.vanguard;
+    const protR = vb.protectR ?? 220;
+    const protR2 = vb.protectR2 ?? 240;
+    // Commander protect radius
+    g.lineStyle(1, COLOR.vanguard, 0.15);
+    g.strokeCircle(this.player.x, this.player.y, protR);
+    // Archer leader protect radius
+    const aLdr = this._getArcherLeader();
+    g.lineStyle(1, COLOR.vanguard, 0.10);
+    g.strokeCircle(aLdr.x, aLdr.y, protR2);
+    // Intercept indicator on vanguards
+    for (const u of this.armyUnits) {
+      if (!u.active || u.squadType !== 'vanguard') continue;
+      if (u.guardThreatSince > 0 && (this.time.now - u.guardThreatSince >= (vb.guardThreatMs ?? 120))) {
+        g.fillStyle(0xff8800, 0.6);
+        g.fillTriangle(u.x, u.y - 16, u.x - 5, u.y - 10, u.x + 5, u.y - 10);
+      }
     }
 
     // ── Screen-space text panel ──

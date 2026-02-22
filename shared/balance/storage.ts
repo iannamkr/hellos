@@ -130,7 +130,10 @@ function validate(data: any): void {
     'formingExitDist','anchorDecayVanguard','anchorDecayArcher','anchorDecayCavalry',
     'flagPenetrationRadius','flagPenetrationThreshold','cameraZoomProximity','cameraZoomEnemyCount',
     'cameraZoomIn','cameraZoomNormal','cameraZoomEase','encounterStartSec','encounterEndSec',
-    'encounterEarlyExitSec','zoneRadius','markExplosionRadius','minAttackCD','minDashCD','armySpeedBoostMult']) {
+    'encounterEarlyExitSec','zoneRadius','markExplosionRadius','minAttackCD','minDashCD','armySpeedBoostMult',
+    'moveHaltDist','moveSoftZone','moveSoftSpeedMult','moveSoftSpeedCap','moveFarSpeedMult',
+    'dirTurnRate','aimDeadZone','squadReformDur','squadProtectDur',
+    'frontLineFwdMin','frontLineFwdMax','frontLineMinCount','frontLineCollapseDur','frontLineEngageDist']) {
     if (g[k] !== undefined) checkNum(g[k], `game.${k}`);
   }
 

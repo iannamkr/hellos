@@ -1,7 +1,7 @@
 import type { NodeId, SupportId, KeystoneId, ItemId } from '../types';
 import type { ArmyUnit } from '../entities/ArmyUnit';
 import type { EnemyBase } from '../entities/EnemyBase';
-import type { UnitStats } from '../../shared/balance/schema';
+import type { UnitStats, GameConfig } from '../../shared/balance/schema';
 
 export interface GameRules {
   // Build queries
@@ -49,10 +49,12 @@ export interface GameRules {
   reformBrakeRadius: number;
   reformStaggerInterval: number;
 
-  // Balance data (per-squad)
+  // Balance data (per-squad + game)
   vanguardBalance: UnitStats;
   archerBalance: UnitStats;
   cavalryBalance: UnitStats;
+  gameBalance: GameConfig;
+  modifierNodes: Partial<Record<string, Record<string, number>>>;
 
   // State queries
   k5Target: EnemyBase | null;

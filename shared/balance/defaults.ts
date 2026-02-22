@@ -10,6 +10,7 @@ import {
   BUFFER_BASE_FIELDS, BUFFER_FIELDS,
   GAME_SPAWN_FIELDS, GAME_ARMY_FIELDS, GAME_SEPARATION_FIELDS, GAME_ANCHOR_FIELDS,
   GAME_FLAG_FIELDS, GAME_CAMERA_FIELDS, GAME_ENCOUNTER_FIELDS, GAME_ZONE_FIELDS, GAME_CAP_FIELDS,
+  GAME_MOVEMENT_FIELDS, GAME_DIRECTION_FIELDS, GAME_SQUAD_FIELDS, GAME_FRONTLINE_FIELDS,
   MODIFIER_FIELDS,
 } from './fields';
 
@@ -37,6 +38,8 @@ export const DEFAULT_BALANCE: BalanceData = {
     ...extractDefaults(GAME_FLAG_FIELDS), ...extractDefaults(GAME_CAMERA_FIELDS),
     ...extractDefaults(GAME_ENCOUNTER_FIELDS), ...extractDefaults(GAME_ZONE_FIELDS),
     ...extractDefaults(GAME_CAP_FIELDS),
+    ...extractDefaults(GAME_MOVEMENT_FIELDS), ...extractDefaults(GAME_DIRECTION_FIELDS),
+    ...extractDefaults(GAME_SQUAD_FIELDS), ...extractDefaults(GAME_FRONTLINE_FIELDS),
   } as any,
   modifiers: extractModifierDefaults(MODIFIER_FIELDS) as any,
   meta: { version: 1 },

@@ -12,7 +12,9 @@ import {
   CHASER_BASE_FIELDS, CHASER_FIELDS, DASHER_BASE_FIELDS, DASHER_FIELDS, BUFFER_BASE_FIELDS, BUFFER_FIELDS,
   GAME_SPAWN_FIELDS, GAME_ARMY_FIELDS, GAME_SEPARATION_FIELDS, GAME_ANCHOR_FIELDS,
   GAME_FLAG_FIELDS, GAME_CAMERA_FIELDS, GAME_ENCOUNTER_FIELDS, GAME_ZONE_FIELDS, GAME_CAP_FIELDS,
-  MODIFIER_FIELDS, MOD_CATEGORY_LABELS,
+  GAME_MOVEMENT_FIELDS, GAME_DIRECTION_FIELDS, GAME_SQUAD_FIELDS, GAME_FRONTLINE_FIELDS,
+  MODIFIER_FIELDS, MOD_CATEGORY_LABELS, MOD_DESCRIPTIONS,
+  UNIT_DESCRIPTIONS, ENEMY_DESCRIPTIONS,
 } from '../../../shared/balance/fields';
 
 const SQUAD_TYPES: SquadType[] = ['vanguard', 'archer', 'cavalry'];
@@ -60,12 +62,14 @@ export class SimApp {
       .header .save-status { font-size: 12px; color: #8a8; }
       .main { display: flex; flex: 1; gap: 12px; min-height: 0; }
       .sidebar { width: 180px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
-      .tab-bar { display: flex; gap: 2px; margin-bottom: 8px; flex-wrap: wrap; }
-      .tab-bar button { flex: 1; padding: 6px 4px; border: 1px solid #444; background: #2a2a4a; color: #aaa; cursor: pointer; border-radius: 4px 4px 0 0; font-size: 12px; min-width: 0; }
-      .tab-bar button.active { background: #3a3a6a; color: #fff; border-bottom-color: #3a3a6a; }
-      .list-item { padding: 8px 12px; border: 1px solid #333; border-radius: 4px; cursor: pointer; font-size: 13px; text-transform: capitalize; }
+      .tab-bar { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+      .tab-bar button { padding: 8px 12px; border: 1px solid #444; background: #2a2a4a; color: #aaa; cursor: pointer; border-radius: 4px; font-size: 13px; text-align: left; }
+      .tab-bar button.active { background: #3a3a6a; color: #fff; border-color: #ffaa00; }
+      .list-item { padding: 8px 12px; border: 1px solid #333; border-radius: 4px; cursor: pointer; font-size: 13px; text-transform: capitalize; line-height: 1.4; }
       .list-item:hover { background: #2a2a4a; }
       .list-item.active { background: #3a3a6a; border-color: #ffaa00; color: #ffaa00; }
+      .list-item .desc { display: block; font-size: 11px; color: #777; text-transform: none; margin-top: 1px; }
+      .list-item.active .desc { color: #bb8800; }
       .sub-header { font-size: 11px; color: #666; margin: 8px 0 4px; text-transform: uppercase; letter-spacing: 1px; }
       .editor { flex: 1; background: #22223a; border: 1px solid #333; border-radius: 6px; padding: 16px; overflow-y: auto; }
       .editor h2 { font-size: 16px; margin-bottom: 12px; text-transform: capitalize; color: #ffcc44; }
@@ -93,6 +97,9 @@ export class SimApp {
   }
 
   private render(): void {
+    const editorScroll = this.root.querySelector('.editor')?.scrollTop ?? 0;
+    const sidebarScroll = this.root.querySelector('.sidebar')?.scrollTop ?? 0;
+
     const sum = summarize(this.balance);
     const selectedKey = this.tab === 'commander' ? 'Commander'
       : this.tab === 'game' ? 'Game Settings'
@@ -101,9 +108,9 @@ export class SimApp {
 
     let listHtml = '';
     if (this.tab === 'units') {
-      listHtml = SQUAD_TYPES.map(s => `<div class="list-item ${this.selectedUnit === s ? 'active' : ''}" data-select="${s}">${s}</div>`).join('');
+      listHtml = SQUAD_TYPES.map(s => `<div class="list-item ${this.selectedUnit === s ? 'active' : ''}" data-select="${s}">${s}${UNIT_DESCRIPTIONS[s] ? `<span class="desc">${UNIT_DESCRIPTIONS[s]}</span>` : ''}</div>`).join('');
     } else if (this.tab === 'enemies') {
-      listHtml = ENEMY_TYPES.map(e => `<div class="list-item ${this.selectedEnemy === e ? 'active' : ''}" data-select="${e}">${e}</div>`).join('');
+      listHtml = ENEMY_TYPES.map(e => `<div class="list-item ${this.selectedEnemy === e ? 'active' : ''}" data-select="${e}">${e}${ENEMY_DESCRIPTIONS[e] ? `<span class="desc">${ENEMY_DESCRIPTIONS[e]}</span>` : ''}</div>`).join('');
     } else if (this.tab === 'modifiers') {
       listHtml = this.renderModifierList();
     }
@@ -150,6 +157,11 @@ export class SimApp {
 
     this.bind();
     this._mountPreview();
+
+    const newEditor = this.root.querySelector('.editor');
+    const newSidebar = this.root.querySelector('.sidebar');
+    if (newEditor) newEditor.scrollTop = editorScroll;
+    if (newSidebar) newSidebar.scrollTop = sidebarScroll;
   }
 
   private _mountPreview(): void {
@@ -165,7 +177,8 @@ export class SimApp {
       const ids = Object.keys(MODIFIER_FIELDS[cat]);
       for (const id of ids) {
         const active = this.selectedModCategory === cat && this.selectedModId === id;
-        html += `<div class="list-item ${active ? 'active' : ''}" data-mod-cat="${cat}" data-mod-id="${id}">${id}</div>`;
+        const desc = MOD_DESCRIPTIONS[cat]?.[id] ?? '';
+        html += `<div class="list-item ${active ? 'active' : ''}" data-mod-cat="${cat}" data-mod-id="${id}">${id}${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
       }
     }
     return html;
@@ -216,6 +229,10 @@ export class SimApp {
     html += `<h3>Encounter</h3>` + this.renderFields(this.balance.game, GAME_ENCOUNTER_FIELDS);
     html += `<h3>Zone</h3>` + this.renderFields(this.balance.game, GAME_ZONE_FIELDS);
     html += `<h3>Cooldown Caps / Speed</h3>` + this.renderFields(this.balance.game, GAME_CAP_FIELDS);
+    html += `<h3>Movement</h3>` + this.renderFields(this.balance.game, GAME_MOVEMENT_FIELDS);
+    html += `<h3>Direction</h3>` + this.renderFields(this.balance.game, GAME_DIRECTION_FIELDS);
+    html += `<h3>Squad Timing</h3>` + this.renderFields(this.balance.game, GAME_SQUAD_FIELDS);
+    html += `<h3>Front-line</h3>` + this.renderFields(this.balance.game, GAME_FRONTLINE_FIELDS);
     return html;
   }
 

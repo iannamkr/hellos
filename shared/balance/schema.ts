@@ -80,6 +80,23 @@ export interface UnitStats {
   cavAccel?: number;
   cavInterceptMaxLateral?: number;
   cavInterceptFixedDepth?: number;
+  // Vanguard guard/intercept
+  protectR?: number;
+  protectR2?: number;
+  protectROut?: number;
+  breachDepth?: number;
+  interceptPush?: number;
+  guardThreatMs?: number;
+  guardThreatSpeedMult?: number;
+  // Vanguard A3 push
+  a3PushForce?: number;
+  // Archer
+  slotArrDist?: number;
+  // Cavalry spread
+  cavLoadLambda?: number;
+  cavLateralSpread?: number;
+  cavDepthSpread?: number;
+  cavEgressGapScale?: number;
 }
 
 export interface EnemyStats {
@@ -150,6 +167,24 @@ export interface GameConfig {
   minDashCD?: number;
   // Speed boost
   armySpeedBoostMult?: number;
+  // Movement thresholds (moveToSlot)
+  moveHaltDist?: number;
+  moveSoftZone?: number;
+  moveSoftSpeedMult?: number;
+  moveSoftSpeedCap?: number;
+  moveFarSpeedMult?: number;
+  // Direction
+  dirTurnRate?: number;
+  aimDeadZone?: number;
+  // Squad reform/protect timing
+  squadReformDur?: number;
+  squadProtectDur?: number;
+  // Front-line detection
+  frontLineFwdMin?: number;
+  frontLineFwdMax?: number;
+  frontLineMinCount?: number;
+  frontLineCollapseDur?: number;
+  frontLineEngageDist?: number;
 }
 
 export interface ModifierConfig {

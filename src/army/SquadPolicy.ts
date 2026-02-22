@@ -5,6 +5,12 @@ import type { EnemyBase } from '../entities/EnemyBase';
 import { Dasher } from '../entities/Dasher';
 import { BufferEnemy } from '../entities/BufferEnemy';
 import type { GameRules } from './GameRules';
+import { DEFAULT_BALANCE } from '../../shared/balance/defaults';
+
+const DEF_GAME = DEFAULT_BALANCE.game;
+const DEF_VAN = DEFAULT_BALANCE.units.vanguard;
+const DEF_ARC = DEFAULT_BALANCE.units.archer;
+const DEF_CAV = DEFAULT_BALANCE.units.cavalry;
 
 export interface Vec2 { x: number; y: number }
 
@@ -18,17 +24,24 @@ export interface SquadPolicy {
 // ─── Utility functions ───────────────────────────────────────────
 
 export function moveToSlot(u: ArmyUnit, speedMult: number, rules: GameRules): void {
+  const gb = rules.gameBalance;
+  const haltDist = gb.moveHaltDist ?? DEF_GAME.moveHaltDist!;
+  const softZone = gb.moveSoftZone ?? DEF_GAME.moveSoftZone!;
+  const softMult = gb.moveSoftSpeedMult ?? DEF_GAME.moveSoftSpeedMult!;
+  const softCap = gb.moveSoftSpeedCap ?? DEF_GAME.moveSoftSpeedCap!;
+  const farMult = gb.moveFarSpeedMult ?? DEF_GAME.moveFarSpeedMult!;
+
   const d = Phaser.Math.Distance.Between(u.x, u.y, u.slotX, u.slotY);
-  if (d < 10) {
+  if (d < haltDist) {
     u.setVelocity(0, 0);
-  } else if (d <= 60) {
+  } else if (d <= softZone) {
     // Soft convergence: proportional speed, decelerates to 0
     const angle = Phaser.Math.Angle.Between(u.x, u.y, u.slotX, u.slotY);
-    const spd = Math.min(d * 2.5, 140);
+    const spd = Math.min(d * softMult, softCap);
     u.setVelocity(Math.cos(angle) * spd, Math.sin(angle) * spd);
   } else {
     const angle = Phaser.Math.Angle.Between(u.x, u.y, u.slotX, u.slotY);
-    const spd = Math.min(u.unitSpeed * speedMult, d * 3);
+    const spd = Math.min(u.unitSpeed * speedMult, d * farMult);
     u.setVelocity(Math.cos(angle) * spd, Math.sin(angle) * spd);
   }
 
@@ -38,10 +51,11 @@ export function moveToSlot(u: ArmyUnit, speedMult: number, rules: GameRules): vo
     const relY = u.y - rules.anchorV.y;
     const dot = relX * rules.dir.x + relY * rules.dir.y;
     if (dot < 0) {
+      const pushForce = rules.vanguardBalance.a3PushForce ?? DEF_VAN.a3PushForce!;
       const body = u.body as Phaser.Physics.Arcade.Body;
       u.setVelocity(
-        body.velocity.x + rules.dir.x * 50,
-        body.velocity.y + rules.dir.y * 50,
+        body.velocity.x + rules.dir.x * pushForce,
+        body.velocity.y + rules.dir.y * pushForce,
       );
     }
   }
@@ -101,7 +115,6 @@ const vanguardPolicy: SquadPolicy = {
   computeSlots(units, _anchor, rules) {
     const fx = rules.dir.x, fy = rules.dir.y;
     let vrx = -fy, vry = fx;
-    let vfx = fx, vfy = fy;
 
     // A1: vanguard aligns on FLAG-Commander perpendicular line
     if (rules.hasNode('A1')) {
@@ -109,7 +122,7 @@ const vanguardPolicy: SquadPolicy = {
       const flagDirY = rules.flag.y - rules.player.y;
       const flagLen = Math.sqrt(flagDirX * flagDirX + flagDirY * flagDirY);
       if (flagLen > 1) {
-        vfx = flagDirX / flagLen; vfy = flagDirY / flagLen;
+        const vfx = flagDirX / flagLen, vfy = flagDirY / flagLen;
         vrx = -vfy; vry = vfx;
       }
     }
@@ -117,13 +130,12 @@ const vanguardPolicy: SquadPolicy = {
     // E2: still → tighter formation
     const vb = rules.vanguardBalance;
     const gap = (rules.hasNode('E2') && !rules.player.isMoving)
-      ? (vb.vanguardGapStill ?? 35)
-      : (vb.vanguardGapNormal ?? 60);
+      ? (vb.vanguardGapStill ?? DEF_VAN.vanguardGapStill!)
+      : (vb.vanguardGapNormal ?? DEF_VAN.vanguardGapNormal!);
 
-    // Single-rank line formation anchored on FLAG
-    const lineDepth = rules.vanguardBalance.lineDepth ?? 160;
-    const lineX = rules.flag.x + vfx * lineDepth;
-    const lineY = rules.flag.y + vfy * lineDepth;
+    // Single-rank line formation anchored on lineAnchor (commander-based)
+    const lineX = rules.lineAnchor.x;
+    const lineY = rules.lineAnchor.y;
 
     for (let i = 0; i < units.length; i++) {
       const offset = i < SLOT_TABLE.length ? SLOT_TABLE[i] : SLOT_TABLE[SLOT_TABLE.length - 1] + (i - SLOT_TABLE.length + 1) * gap;
@@ -177,22 +189,86 @@ const vanguardPolicy: SquadPolicy = {
     if (rules.isReforming) {
       reformMoveToSlot(unit, unitIndex, rules);
       unit.state = 'FORMING';
+      unit.guardThreatSince = 0;
       return null;
     }
 
+    const vb = rules.vanguardBalance;
+    const protR = vb.protectR ?? DEF_VAN.protectR!;
+    const protR2 = vb.protectR2 ?? DEF_VAN.protectR2!;
+    const protROut = vb.protectROut ?? DEF_VAN.protectROut!;
+    const breachD = vb.breachDepth ?? DEF_VAN.breachDepth!;
+    const threatMs = vb.guardThreatMs ?? DEF_VAN.guardThreatMs!;
+    const threatSpeedMult = vb.guardThreatSpeedMult ?? DEF_VAN.guardThreatSpeedMult!;
+    const interceptPush = vb.interceptPush ?? DEF_VAN.interceptPush!;
+
+    // ── Threat detection ──
+    let threatened = false;
+    for (const e of rules.enemies) {
+      if (!e.active) continue;
+      if (Phaser.Math.Distance.Between(rules.player.x, rules.player.y, e.x, e.y) < protR) { threatened = true; break; }
+      if (Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, e.x, e.y) < protR2) { threatened = true; break; }
+      const relX = e.x - rules.lineAnchor.x;
+      const relY = e.y - rules.lineAnchor.y;
+      const dot = relX * rules.dir.x + relY * rules.dir.y;
+      if (dot < -breachD) { threatened = true; break; }
+    }
+
+    // Track continuous threat duration
+    if (threatened) {
+      if (unit.guardThreatSince === 0) unit.guardThreatSince = rules.now;
+    } else {
+      unit.guardThreatSince = 0;
+    }
+
+    const intercepting = unit.guardThreatSince > 0 && (rules.now - unit.guardThreatSince >= threatMs);
+
+    // ── INTERCEPT exit: all threats beyond protROut ──
+    if (intercepting) {
+      let anyClose = false;
+      for (const e of rules.enemies) {
+        if (!e.active) continue;
+        if (Phaser.Math.Distance.Between(rules.player.x, rules.player.y, e.x, e.y) < protROut ||
+            Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, e.x, e.y) < protROut) {
+          anyClose = true; break;
+        }
+      }
+      if (!anyClose) {
+        unit.guardThreatSince = 0;
+      }
+    }
+
+    const isIntercepting = unit.guardThreatSince > 0 && (rules.now - unit.guardThreatSince >= threatMs);
+
+    // ── INTERCEPT: push slots forward ──
+    if (isIntercepting) {
+      unit.slotX += rules.dir.x * interceptPush;
+      unit.slotY += rules.dir.y * interceptPush;
+    }
+
     // ── Hysteresis LINE_HOLD ──
-    const holdIn = rules.vanguardBalance.holdIn ?? 35;
-    const holdOut = rules.vanguardBalance.holdOut ?? 55;
+    const holdIn = vb.holdIn ?? DEF_VAN.holdIn!;
+    const holdOut = vb.holdOut ?? DEF_VAN.holdOut!;
+    const distToNewSlot = Phaser.Math.Distance.Between(unit.x, unit.y, unit.slotX, unit.slotY);
     const wasHolding = unit.state === 'HOLD';
-    const isHolding = wasHolding ? distToSlot < holdOut : distToSlot < holdIn;
+    const isHolding = wasHolding ? distToNewSlot < holdOut : distToNewSlot < holdIn;
 
-    // Always move toward slot — HOLD only reduces speed, never stops
-    const holdMult = rules.vanguardBalance.holdSpeedMult ?? 0.7;
-    const holdSpeedMult = isHolding ? rules.speedMult * holdMult : rules.speedMult;
-    moveToSlot(unit, holdSpeedMult, rules);
+    // Movement speed: threat ramp-down, then HOLD reduction
+    const holdMult = vb.holdSpeedMult ?? DEF_VAN.holdSpeedMult!;
+    let speedMult = isHolding ? rules.speedMult * holdMult : rules.speedMult;
+    if (threatened && !isIntercepting) speedMult *= threatSpeedMult;
+    moveToSlot(unit, speedMult, rules);
 
-    // ── Target lock + attack (always runs, never skipped by formation) ──
-    if (!target || !target.active) {
+    // ── Target filtering: INTERCEPT filters out targets beyond protROut ──
+    let effectiveTarget = target;
+    if (isIntercepting && target && target.active) {
+      const dToPlayer = Phaser.Math.Distance.Between(rules.player.x, rules.player.y, target.x, target.y);
+      const dToLeader = Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, target.x, target.y);
+      if (dToPlayer >= protROut && dToLeader >= protROut) effectiveTarget = null;
+    }
+
+    // ── Target lock + attack ──
+    if (!effectiveTarget || !effectiveTarget.active) {
       unit.state = isHolding ? 'HOLD' : 'FORMING';
       return null;
     }
@@ -201,8 +277,8 @@ const vanguardPolicy: SquadPolicy = {
     if (unit.lockedTarget && rules.now < unit.targetLockUntil && (unit.lockedTarget as EnemyBase).active) {
       // keep locked
     } else {
-      unit.lockedTarget = target;
-      unit.targetLockUntil = rules.now + (rules.vanguardBalance.targetLockMs ?? 800);
+      unit.lockedTarget = effectiveTarget;
+      unit.targetLockUntil = rules.now + (vb.targetLockMs ?? DEF_VAN.targetLockMs!);
     }
     const lockTarget = unit.lockedTarget as EnemyBase;
 
@@ -231,10 +307,10 @@ const archerPolicy: SquadPolicy = {
     const fx = rules.dir.x, fy = rules.dir.y;
     const rx = -fy, ry = fx;
     const ab = rules.archerBalance;
-    const gap = ab.slotGap ?? 70;
-    const spread = ab.maxSpread ?? 240;
-    const r0d = ab.rank0Depth ?? 260;
-    const r1d = ab.rank1Depth ?? 320;
+    const gap = ab.slotGap ?? DEF_ARC.slotGap!;
+    const spread = ab.maxSpread ?? DEF_ARC.maxSpread!;
+    const r0d = ab.rank0Depth ?? DEF_ARC.rank0Depth!;
+    const r1d = ab.rank1Depth ?? DEF_ARC.rank1Depth!;
     const rank0Count = Math.ceil(units.length / 2);
     const rank1Count = units.length - rank0Count;
 
@@ -258,7 +334,7 @@ const archerPolicy: SquadPolicy = {
 
     // Leader-based range check: use archerLeader position for range, not individual archer
     const ldr = rules.archerLeader;
-    const dz = rules.archerBalance.deadZone ?? 120;
+    const dz = rules.archerBalance.deadZone ?? DEF_ARC.deadZone!;
     const inRange = active.filter(e => {
       const dToLeader = Phaser.Math.Distance.Between(ldr.x, ldr.y, e.x, e.y);
       return dToLeader <= unit.atkRange && dToLeader >= dz;
@@ -316,10 +392,10 @@ const archerPolicy: SquadPolicy = {
     const a4Retreat = rules.hasNode('A4') && rules.vanguardLowHp;
     const ab = rules.archerBalance;
     const archerSpeedMult = a4Retreat
-      ? rules.speedMult * (ab.retreatSpeedMult ?? 1.5)
-      : rules.speedMult * (ab.normalSpeedMult ?? 0.5);
+      ? rules.speedMult * (ab.retreatSpeedMult ?? DEF_ARC.retreatSpeedMult!)
+      : rules.speedMult * (ab.normalSpeedMult ?? DEF_ARC.normalSpeedMult!);
 
-    if (distToSlot > 30) {
+    if (distToSlot > (ab.slotArrDist ?? DEF_ARC.slotArrDist!)) {
       moveToSlot(unit, archerSpeedMult, rules);
     } else {
       unit.setVelocity(0, 0);
@@ -328,10 +404,10 @@ const archerPolicy: SquadPolicy = {
     // Leader-based fire range: use archerLeader distance
     const ldr = rules.archerLeader;
     const leaderDist = Phaser.Math.Distance.Between(ldr.x, ldr.y, target.x, target.y);
-    const inFireRange = leaderDist <= unit.atkRange && leaderDist >= (rules.archerBalance.deadZone ?? 120);
+    const inFireRange = leaderDist <= unit.atkRange && leaderDist >= (rules.archerBalance.deadZone ?? DEF_ARC.deadZone!);
 
     // B2: no fire if target within 180px of archer leader
-    const b2Block = rules.hasNode('B2') && leaderDist < 180;
+    const b2Block = rules.hasNode('B2') && leaderDist < (rules.modifierNodes?.archerMinRange?.blockDist ?? DEFAULT_BALANCE.modifiers.nodes.archerMinRange!.blockDist);
     const inVolleyWindow = rules.isVolleyOpen && !rules.archerFired.has(unit);
     // B6: extra volley on marked target
     const b6Bonus = rules.hasNode('B6') && target === rules.mark && rules.archerFired.has(unit);
@@ -353,11 +429,6 @@ function buildGapSamples(spacing: number): number[] {
   return [-2 * spacing, -spacing, 0, spacing, 2 * spacing];
 }
 
-// Load-balancing constants
-const CAV_LOAD_LAMBDA = 1.25;
-const CAV_LATERAL_SPREAD = 80;
-const CAV_DEPTH_SPREAD = 40;
-
 /** 32-bit deterministic hash (FNV-1a, no randomness) */
 function hash32(s: string): number {
   let h = 2166136261;
@@ -369,13 +440,13 @@ function hash32(s: string): number {
 }
 
 /** Deterministic per-cavalry offset so same-gap units don't overlap */
-function cavOffset(stableId: string): { lateral: number; depth: number } {
+function cavOffset(stableId: string, latSpread: number, depSpread: number): { lateral: number; depth: number } {
   const h = hash32(stableId);
   const u = (h & 0xffff) / 0xffff;
   const v = ((h >>> 16) & 0xffff) / 0xffff;
   return {
-    lateral: (u * 2 - 1) * CAV_LATERAL_SPREAD,
-    depth: (v * 2 - 1) * CAV_DEPTH_SPREAD,
+    lateral: (u * 2 - 1) * latSpread,
+    depth: (v * 2 - 1) * depSpread,
   };
 }
 
@@ -383,10 +454,11 @@ function cavOffset(stableId: string): { lateral: number; depth: number } {
 function cavMoveTo(unit: ArmyUnit, tx: number, ty: number, maxSpd: number, rules: GameRules): void {
   const dx = tx - unit.x, dy = ty - unit.y;
   const d = Math.sqrt(dx * dx + dy * dy);
-  if (d < 10) { unit.setVelocity(0, 0); return; }
+  const gb = rules.gameBalance;
+  if (d < (gb.moveHaltDist ?? DEF_GAME.moveHaltDist!)) { unit.setVelocity(0, 0); return; }
 
   // Desired velocity
-  const spd = Math.min(maxSpd, d * 2.5);
+  const spd = Math.min(maxSpd, d * (gb.moveSoftSpeedMult ?? DEF_GAME.moveSoftSpeedMult!));
   const dvx = (dx / d) * spd, dvy = (dy / d) * spd;
 
   // Current velocity
@@ -394,7 +466,7 @@ function cavMoveTo(unit: ArmyUnit, tx: number, ty: number, maxSpd: number, rules
   const cvx = body.velocity.x, cvy = body.velocity.y;
 
   // Limit delta-v per frame
-  const accel = (rules.cavalryBalance.cavAccel ?? 2800) * (rules.dtMs / 1000);
+  const accel = (rules.cavalryBalance.cavAccel ?? DEF_CAV.cavAccel!) * (rules.dtMs / 1000);
   const ddx = dvx - cvx, ddy = dvy - cvy;
   const ddLen = Math.sqrt(ddx * ddx + ddy * ddy);
   if (ddLen <= accel) {
@@ -412,12 +484,12 @@ const cavalryPolicy: SquadPolicy = {
     const la = rules.lineAnchor;
     const vPositions = rules.vanguardPositions;
     const cb = rules.cavalryBalance;
-    const scanR = cb.gapScanRadius ?? 140;
-    const gapSamples = buildGapSamples(cb.gapSpacing ?? 120);
-    const gapOff = cb.gapOffset ?? -40;
-    const calcInterval = cb.gapCalcInterval ?? 200;
-    const stickyMs = cb.cavStickyMs ?? 1200;
-    const improveDelta = cb.cavImproveDelta ?? 1.25;
+    const scanR = cb.gapScanRadius ?? DEF_CAV.gapScanRadius!;
+    const gapSamples = buildGapSamples(cb.gapSpacing ?? DEF_CAV.gapSpacing!);
+    const gapOff = cb.gapOffset ?? DEF_CAV.gapOffset!;
+    const calcInterval = cb.gapCalcInterval ?? DEF_CAV.gapCalcInterval!;
+    const stickyMs = cb.cavStickyMs ?? DEF_CAV.cavStickyMs!;
+    const improveDelta = cb.cavImproveDelta ?? DEF_CAV.cavImproveDelta!;
 
     // Batch load-balanced assignment (throttled)
     if (rules.now - units[0].cavLastGapCalc > calcInterval) {
@@ -447,7 +519,7 @@ const cavalryPolicy: SquadPolicy = {
         let bestScore = Infinity;
         for (let g = 0; g < gapSamples.length; g++) {
           const tie = Math.abs(gapSamples[g]) * 0.001 + (gapSamples[g] > 0 ? 0.0001 : 0);
-          const score = thinness[g] + CAV_LOAD_LAMBDA * assignedCount[g] + tie;
+          const score = thinness[g] + (cb.cavLoadLambda ?? DEF_CAV.cavLoadLambda!) * assignedCount[g] + tie;
           if (score < bestScore) { bestScore = score; bestIdx = g; }
         }
 
@@ -468,7 +540,7 @@ const cavalryPolicy: SquadPolicy = {
     }
 
     // Compute cover center + offset slot with LPF
-    const alpha0 = cb.cavSlotAlpha ?? 0.2;
+    const alpha0 = cb.cavSlotAlpha ?? DEF_CAV.cavSlotAlpha!;
     const alpha = 1 - Math.pow(1 - alpha0, rules.dtMs / 16.67);
     for (const u of units) {
       // Cover center (no offset)
@@ -478,7 +550,7 @@ const cavalryPolicy: SquadPolicy = {
       u.coverY = cy;
 
       // Target slot with offset
-      const off = cavOffset(u.stableId);
+      const off = cavOffset(u.stableId, cb.cavLateralSpread ?? DEF_CAV.cavLateralSpread!, cb.cavDepthSpread ?? DEF_CAV.cavDepthSpread!);
       const rawX = cx + rx * off.lateral + fx * (gapOff + off.depth);
       const rawY = cy + ry * off.lateral + fy * (gapOff + off.depth);
 
@@ -499,10 +571,10 @@ const cavalryPolicy: SquadPolicy = {
     if (active.length === 0) return null;
 
     // Use cover center for gap-based target search
-    const gapR = rules.cavalryBalance.gapTargetRadius ?? 260;
+    const gapR = rules.cavalryBalance.gapTargetRadius ?? DEF_CAV.gapTargetRadius!;
     const cx = unit.coverX, cy = unit.coverY;
     // Use gapROut for wider search radius
-    const searchR = rules.cavalryBalance.cavGapROut ?? 320;
+    const searchR = rules.cavalryBalance.cavGapROut ?? DEF_CAV.cavGapROut!;
 
     const nearGap = active.filter(e =>
       Phaser.Math.Distance.Between(cx, cy, e.x, e.y) <= searchR
@@ -546,9 +618,9 @@ const cavalryPolicy: SquadPolicy = {
     const distToCover = Phaser.Math.Distance.Between(unit.x, unit.y, cx, cy);
 
     // Hysteresis radii
-    const gapRIn = cb.cavGapRIn ?? 240;
-    const gapROut = cb.cavGapROut ?? 320;
-    const seenMs = cb.cavSeenMs ?? 200;
+    const gapRIn = cb.cavGapRIn ?? DEF_CAV.cavGapRIn!;
+    const gapROut = cb.cavGapROut ?? DEF_CAV.cavGapROut!;
+    const seenMs = cb.cavSeenMs ?? DEF_CAV.cavSeenMs!;
 
     // ── 4-state machine ──
     switch (unit.cavPhase) {
@@ -559,7 +631,7 @@ const cavalryPolicy: SquadPolicy = {
 
         // Continuous target detection: must see target for seenMs before entering intercept
         const hasTarget = target && target.active;
-        const maxIntercepts = cb.maxConcurrentIntercepts ?? 2;
+        const maxIntercepts = cb.maxConcurrentIntercepts ?? DEF_CAV.maxConcurrentIntercepts!;
 
         if (hasTarget && rules.cavalryInterceptCount < maxIntercepts) {
           // Check target is within gapRIn of cover center
@@ -604,8 +676,8 @@ const cavalryPolicy: SquadPolicy = {
         }
 
         // Stabilized intercept point: project enemy onto rightDir axis, clamp
-        const maxLateral = cb.cavInterceptMaxLateral ?? 140;
-        const fixedDepth = cb.cavInterceptFixedDepth ?? 60;
+        const maxLateral = cb.cavInterceptMaxLateral ?? DEF_CAV.cavInterceptMaxLateral!;
+        const fixedDepth = cb.cavInterceptFixedDepth ?? DEF_CAV.cavInterceptFixedDepth!;
         // Enemy position relative to cover center
         const relX = target.x - cx, relY = target.y - cy;
         // Project onto right-direction (lateral axis)
@@ -617,13 +689,13 @@ const cavalryPolicy: SquadPolicy = {
         unit.cavTargetX = ipx;
         unit.cavTargetY = ipy;
 
-        const spd = unit.unitSpeed * rules.speedMult * (cb.interceptSpeedMult ?? 1.3);
+        const spd = unit.unitSpeed * rules.speedMult * (cb.interceptSpeedMult ?? DEF_CAV.interceptSpeedMult!);
         cavMoveTo(unit, ipx, ipy, spd, rules);
         unit.state = 'ENGAGE';
 
         // Transition to DISRUPT: close enough or timeout
         const distToTarget = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
-        if (distToTarget < unit.atkRange || (rules.now - unit.cavPhaseTimer > (cb.interceptTimeout ?? 2000))) {
+        if (distToTarget < unit.atkRange || (rules.now - unit.cavPhaseTimer > (cb.interceptTimeout ?? DEF_CAV.interceptTimeout!))) {
           unit.cavPhase = 'disrupt';
           unit.cavPhaseTimer = rules.now;
           unit.cavDisruptHits = 0;
@@ -634,13 +706,13 @@ const cavalryPolicy: SquadPolicy = {
       case 'disrupt': {
         unit.state = 'ENGAGE';
 
-        const maxHits = cb.cavDisruptMaxHits ?? 2;
+        const maxHits = cb.cavDisruptMaxHits ?? DEF_CAV.cavDisruptMaxHits!;
         if (target && target.active && unit.cavDisruptHits < maxHits) {
           const distToTarget = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
           if (distToTarget <= unit.atkRange && rules.now >= unit.nextAtk) {
             unit.cavDisruptHits++;
             unit.setVelocity(0, 0);
-            if (rules.now - unit.cavPhaseTimer > (cb.cavDisruptDuration ?? 700)) {
+            if (rules.now - unit.cavPhaseTimer > (cb.cavDisruptDuration ?? DEF_CAV.cavDisruptDuration!)) {
               unit.cavPhase = 'egress';
               unit.cavPhaseTimer = rules.now;
             }
@@ -653,7 +725,7 @@ const cavalryPolicy: SquadPolicy = {
           unit.setVelocity(0, 0);
         }
 
-        if (rules.now - unit.cavPhaseTimer > (cb.cavDisruptDuration ?? 700)) {
+        if (rules.now - unit.cavPhaseTimer > (cb.cavDisruptDuration ?? DEF_CAV.cavDisruptDuration!)) {
           unit.cavPhase = 'egress';
           unit.cavPhaseTimer = rules.now;
         }
@@ -661,10 +733,11 @@ const cavalryPolicy: SquadPolicy = {
       }
 
       case 'egress': {
-        const gs = buildGapSamples(cb.gapSpacing ?? 120);
-        const eDep = cb.egressDepth ?? 260;
-        const epx = la.x - fx * eDep + rx * (gs[unit.cavGapIdx] * 0.5);
-        const epy = la.y - fy * eDep + ry * (gs[unit.cavGapIdx] * 0.5);
+        const gs = buildGapSamples(cb.gapSpacing ?? DEF_CAV.gapSpacing!);
+        const eDep = cb.egressDepth ?? DEF_CAV.egressDepth!;
+        const egressScale = cb.cavEgressGapScale ?? DEF_CAV.cavEgressGapScale!;
+        const epx = la.x - fx * eDep + rx * (gs[unit.cavGapIdx] * egressScale);
+        const epy = la.y - fy * eDep + ry * (gs[unit.cavGapIdx] * egressScale);
         unit.cavTargetX = epx;
         unit.cavTargetY = epy;
 
@@ -672,7 +745,7 @@ const cavalryPolicy: SquadPolicy = {
         cavMoveTo(unit, epx, epy, spd, rules);
         unit.state = 'FORMING';
 
-        if (rules.now - unit.cavPhaseTimer > (cb.cavEgressDuration ?? 1000)) {
+        if (rules.now - unit.cavPhaseTimer > (cb.cavEgressDuration ?? DEF_CAV.cavEgressDuration!)) {
           unit.cavPhase = 'seek_gap';
           unit.cavSeenTargetSince = 0;
         }
