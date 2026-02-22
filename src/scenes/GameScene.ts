@@ -14,6 +14,7 @@ import { COLOR } from '../colors';
 import type { BalanceData } from '../../shared/balance/schema';
 import { loadBalance } from '../../shared/balance/storage';
 import { DEFAULT_BALANCE } from '../../shared/balance/defaults';
+import { createWorldRuleTokens, type WorldRuleTokens, type TokenState } from '../ui/WorldRuleTokens';
 
 const DEF = DEFAULT_BALANCE;
 
@@ -78,6 +79,7 @@ export class GameScene extends Phaser.Scene {
   private skirmishBackSealUntil = 0;  // F6 back channel seal
   private a5FirstHitMap = new Map<EnemyBase, boolean>(); // A5 first hit tracker
   private nodeHudText!: Phaser.GameObjects.Text;
+  private ruleTokens!: WorldRuleTokens;
 
   // Entities
   player!: Player;
@@ -353,6 +355,10 @@ export class GameScene extends Phaser.Scene {
     this.fortressBackSealUntil = 0;
     this.skirmishBackSealUntil = 0;
     this.a5FirstHitMap = new Map();
+    if (this.ruleTokens) {
+      this.ruleTokens.destroy();
+      this.ruleTokens = createWorldRuleTokens(this);
+    }
   }
 
   create(): void {
@@ -432,6 +438,8 @@ export class GameScene extends Phaser.Scene {
         this.debugText.setText('');
       }
     });
+
+    this.ruleTokens = createWorldRuleTokens(this);
   }
 
   update(): void {
@@ -556,6 +564,7 @@ export class GameScene extends Phaser.Scene {
     this._updateContract();
     this._updateEncounter();
     this._drawAimLine();
+    this._updateRuleTokens();
     this._refreshHpDisplay();
     this._drawCooldowns();
     this._refreshSquadDisplay();
@@ -3240,6 +3249,218 @@ export class GameScene extends Phaser.Scene {
       this.aimGraphics.lineStyle(2, 0xff4444, 0.6);
       this.aimGraphics.strokeCircle(this.tacticalMarkTarget.x, this.tacticalMarkTarget.y, 18);
     }
+  }
+
+  private _updateRuleTokens(): void {
+    const now = this.time.now;
+    const bal = this.balanceData;
+    const ks = this.build.keystone;
+    const tokens: Record<string, TokenState> = {};
+    const c01 = (v: number) => v < 0 ? 0 : v > 1 ? 1 : v;
+
+    // ─── A. Seals / Suppressions ───
+
+    // A-1 Back Seal
+    const bsActive = this._isBackChannelSealed();
+    let bsUntil = 0;
+    if (bsActive) {
+      if (this._hasNode('B4') && now < this.archerGuardBackSealUntil) bsUntil = Math.max(bsUntil, this.archerGuardBackSealUntil);
+      if (this._hasNode('C6') && now < this.cavalryDoctrineBackSealUntil) bsUntil = Math.max(bsUntil, this.cavalryDoctrineBackSealUntil);
+      if (this._hasNode('E6') && now < this.fortressBackSealUntil) bsUntil = Math.max(bsUntil, this.fortressBackSealUntil);
+      if (this._hasNode('F6') && now < this.skirmishBackSealUntil) bsUntil = Math.max(bsUntil, this.skirmishBackSealUntil);
+    }
+    tokens.backSeal = { active: bsActive, gauge: bsActive ? c01((bsUntil - now) / 4000) : 0 };
+
+    // A-2 Iron Wall (A6)
+    const iwDist = bal.modifiers.nodes.ironWall?.flagDist ?? DEF.modifiers.nodes.ironWall!.flagDist;
+    const pFlagDist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.flagX, this.flagY);
+    tokens.cmdBlockIronWall = { active: this._hasNode('A6') && pFlagDist > iwDist };
+
+    // A-3 Skirmish (F6) — blocked inside flag
+    const skDist = bal.modifiers.nodes.skirmishDoctrine?.flagDist ?? DEF.modifiers.nodes.skirmishDoctrine!.flagDist;
+    tokens.cmdBlockSkirmish = { active: this._hasNode('F6') && pFlagDist <= skDist };
+
+    // A-4 Mark Lock (D1)
+    tokens.markLock = { active: this._hasNode('D1') && now < this.markLockUntil, gauge: c01((this.markLockUntil - now) / 2000) };
+
+    // A-5 Commander damage zero (B6)
+    tokens.cmdDmgZeroB6 = { active: this._hasNode('B6') };
+
+    // A-6 Army suppressed — moving (E1)
+    tokens.armySuppMoving = { active: this._hasNode('E1') && this.player.isMoving };
+
+    // A-7 Army suppressed — still (F1)
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    const speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
+    tokens.armySuppStill = { active: this._hasNode('F1') && speed < 10 };
+
+    // A-8 Army suppressed — no mark (D6)
+    tokens.armySuppNoMark = { active: this._hasNode('D6') && !this.tacticalMarkTarget };
+
+    // A-9 Archer suppressed — move start (E5)
+    tokens.archerSuppMove = { active: this._hasNode('E5') && now < this.moveStartPenaltyUntil, gauge: c01((this.moveStartPenaltyUntil - now) / 1000) };
+
+    // A-10 Archer suppressed — stationary (F2)
+    tokens.archerSuppStill = { active: this._hasNode('F2') && !this.player.isMoving };
+
+    // A-11 Dash disabled (E6)
+    tokens.dashDisabled = { active: this._hasNode('E6') };
+
+    // A-12 Cavalry intercept-only (C6)
+    tokens.cavalryIntercept = { active: this._hasNode('C6') };
+
+    // A-13 Scatter forbidden (D3)
+    tokens.scatterForbidden = { active: this._hasNode('D3') && !!(this.tacticalMarkTarget && this.tacticalMarkTarget.active) };
+
+    // A-14 Backward restricted (F5)
+    const f5Dur = bal.modifiers.nodes.noBackwalk?.backDirDur ?? DEF.modifiers.nodes.noBackwalk!.backDirDur;
+    tokens.backwardRestricted = { active: this._hasNode('F5') && this.f5BackDirTimer > 0, gauge: c01(this.f5BackDirTimer / f5Dur) };
+
+    // ─── B. Windows / Timing ───
+
+    // B-1 Volley
+    const vElapsed = now - this.volleyCycleStart;
+    const vc = bal.game.volleyCycle;
+    const vw = bal.game.volleyWindow;
+    const vPhase = vElapsed % vc;
+    tokens.volley = { active: this._isVolleyWindowOpen(), gauge: c01(1 - vPhase / vw) };
+
+    // B-2 Rhythm window (P4)
+    const hasRhythm = this._hasSup('rhythmWindow');
+    if (hasRhythm) {
+      const rw = bal.modifiers.supports.rhythmWindow;
+      const re = now - this.rhythmCycleStart;
+      const rCycle = rw?.cycleDur ?? 3700;
+      const rStart = rw?.powerStart ?? 3000;
+      const rPhase = re % rCycle;
+      const rOpen = rPhase >= rStart;
+      tokens.rhythmWindow = { active: rOpen, gauge: rOpen ? c01(1 - (rPhase - rStart) / (rCycle - rStart)) : 0 };
+    } else {
+      tokens.rhythmWindow = { active: false };
+    }
+
+    // B-3 Dash Prime window (P1)
+    tokens.dashPrimeWindow = { active: now < this.dashPrimeUntil, gauge: c01((this.dashPrimeUntil - now) / 1000) };
+
+    // B-4 Dash Tax window (P7)
+    tokens.dashTaxWindow = { active: now < this.dashTaxBuffUntil, gauge: c01((this.dashTaxBuffUntil - now) / 1500) };
+
+    // B-5 Flank weaken (E4)
+    tokens.flankWeaken = { active: this._hasNode('E4') && now < this.stillRewardWeakenUntil, gauge: c01((this.stillRewardWeakenUntil - now) / 4000) };
+
+    // B-6 Mark kill reward (D4)
+    tokens.markKillReward = { active: this._hasNode('D4') && now < this.markKillRewardBuffUntil, gauge: c01((this.markKillRewardBuffUntil - now) / 3000) };
+
+    // B-7 Execution exit (D6)
+    let exActive = false;
+    let exX = 0, exY = 0, exGauge = 0;
+    if (this._hasNode('D6') && this.tacticalMarkTarget && this.tacticalMarkTarget.active) {
+      const exUntil = this.executionDoctrineTargets.get(this.tacticalMarkTarget);
+      if (exUntil && now < exUntil) {
+        exActive = true;
+        exX = this.tacticalMarkTarget.x;
+        exY = this.tacticalMarkTarget.y;
+        exGauge = c01((exUntil - now) / 2000);
+      }
+    }
+    tokens.executionExit = { active: exActive, gauge: exGauge, x: exX, y: exY };
+
+    // B-8 Charge
+    if (this.isCharging) {
+      const chargeDur = bal.commander.chargeDuration ?? 600;
+      const chargeProgress = c01((now - this.chargeStartTime) / chargeDur);
+      tokens.charge = { active: true, gauge: chargeProgress };
+    } else {
+      tokens.charge = { active: false };
+    }
+
+    // ─── C. Buffs ───
+
+    // C-1 Army speed boost (P1)
+    tokens.armySpeedBoost = { active: now < this.armySpeedBoostUntil, gauge: c01((this.armySpeedBoostUntil - now) / 1000) };
+
+    // C-2 Commitment Lock still damage bonus (P10)
+    tokens.stillDmgBonus = { active: this._hasSup('commitmentLock') && !this.player.isMoving };
+
+    // C-3 K5 consecutive stacks
+    tokens.k5Stack = { active: ks === 'singleTargetOath' && this.k5ConsecutiveHits > 0, stacks: this.k5ConsecutiveHits % 3 || (this.k5ConsecutiveHits > 0 ? 3 : 0) };
+
+    // C-4 Stillness iframes (K2 + optional ironSkin)
+    tokens.stillIframes = { active: ks === 'stillnessStance' && !this.player.isMoving };
+
+    // C-5 Momentum speed boost (K3)
+    tokens.momentumSpeed = { active: ks === 'momentumMode' && this.player.isMoving };
+
+    // C-6 Heal counter (K6 fragilePower or I1 bloodOath)
+    const healCount = ks === 'fragilePower' ? this.k6HealCounter : (this.build.item === 'bloodOath' ? this.i1HealCounter : 0);
+    tokens.healCounter = { active: healCount > 0, stacks: healCount };
+
+    // C-7 Squad protect
+    tokens.squadProtectV = { active: now < this.squadProtectUntil.vanguard, gauge: c01((this.squadProtectUntil.vanguard - now) / 1500) };
+    tokens.squadProtectA = { active: now < this.squadProtectUntil.archer, gauge: c01((this.squadProtectUntil.archer - now) / 1500) };
+    tokens.squadProtectC = { active: now < this.squadProtectUntil.cavalry, gauge: c01((this.squadProtectUntil.cavalry - now) / 1500) };
+
+    // ─── D. Debuffs / Penalties ───
+
+    // D-1 K5 switch penalty — no persistent state, skip (applied inline during damage calc)
+    tokens.k5SwitchPenalty = { active: false };
+
+    // D-2 Commitment Lock move penalty (P10)
+    tokens.commitMovePenalty = { active: this._hasSup('commitmentLock') && this.player.isMoving };
+
+    // D-3 Front line collapse
+    tokens.frontLineCollapse = { active: !this.frontLineIntact, gauge: c01((this.frontLineCollapseUntil - now) / 3000) };
+
+    // D-4 Momentum still penalty (K3)
+    tokens.momentumStillPen = { active: ks === 'momentumMode' && !this.player.isMoving };
+
+    // D-5 Stillness move penalty (K2)
+    tokens.stillnessMovePen = { active: ks === 'stillnessStance' && this.player.isMoving };
+
+    // ─── E. Focus / Target ───
+
+    // E-1 Mark
+    const markActive = !!(this.tacticalMarkTarget && this.tacticalMarkTarget.active && now < this.tacticalMarkUntil);
+    tokens.mark = {
+      active: markActive,
+      gauge: markActive ? c01((this.tacticalMarkUntil - now) / 3000) : 0,
+      x: markActive ? this.tacticalMarkTarget!.x : 0,
+      y: markActive ? this.tacticalMarkTarget!.y : 0,
+    };
+
+    // E-3 Aura anchor (K2 stillness stance)
+    tokens.auraAnchor = {
+      active: ks === 'stillnessStance' && now < this.ssAnchorUntil,
+      gauge: c01((this.ssAnchorUntil - now) / 2000),
+      x: this.ssAnchorX,
+      y: this.ssAnchorY,
+    };
+
+    // E-6 Reform
+    const reformDur = bal.commander.reformDuration ?? 550;
+    tokens.reform = { active: this.reformActive, gauge: this.reformActive ? c01((this.reformUntil - now) / reformDur) : 0 };
+
+    // E-7 Contract
+    tokens.contract = { active: this.contractType !== null && now < this.contractUntil, gauge: c01((this.contractUntil - now) / 18000) };
+
+    // E4-bonus Still progress
+    const stillDur = bal.modifiers.nodes.stillReward?.stillDur ?? DEF.modifiers.nodes.stillReward!.stillDur;
+    tokens.stillProgress = { active: this._hasNode('E4') && !this.player.isMoving && this.stillRewardTimer > 0, gauge: c01(this.stillRewardTimer / stillDur) };
+
+    // ─── Build snapshot ───
+    const bsAnchorX = this.flagX - this.committedDirX * 120;
+    const bsAnchorY = this.flagY - this.committedDirY * 120;
+
+    this.ruleTokens.update({
+      now,
+      playerX: this.player.x, playerY: this.player.y,
+      vanguardX: this.anchorPosV.x, vanguardY: this.anchorPosV.y,
+      archerX: this.anchorPosA.x, archerY: this.anchorPosA.y,
+      cavalryX: this.anchorPosC.x, cavalryY: this.anchorPosC.y,
+      flagX: this.flagX, flagY: this.flagY,
+      backSealX: bsAnchorX, backSealY: bsAnchorY,
+      tokens,
+    });
   }
 
   private _drawArcFlash(aimAngle: number, range: number, angleDeg: number, hit: boolean): void {
