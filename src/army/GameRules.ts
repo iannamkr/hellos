@@ -55,6 +55,7 @@ export interface GameRules {
   cavalryBalance: UnitStats;
   gameBalance: GameConfig;
   modifierNodes: Partial<Record<string, Record<string, number>>>;
+  modifierKeystones: Partial<Record<string, Record<string, number>>>;
 
   // State queries
   k5Target: EnemyBase | null;

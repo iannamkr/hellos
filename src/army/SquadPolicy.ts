@@ -107,6 +107,13 @@ export function closestEnemyToUnit(u: ArmyUnit, pool: EnemyBase[]): EnemyBase | 
   return closestEnemy(u.x, u.y, pool);
 }
 
+function isBreachThreat(e: EnemyBase, rules: GameRules): boolean {
+  const relX = e.x - rules.lineAnchor.x;
+  const relY = e.y - rules.lineAnchor.y;
+  const dot = relX * rules.dir.x + relY * rules.dir.y;
+  return dot < -(rules.vanguardBalance.breachDepth ?? DEF_VAN.breachDepth!);
+}
+
 // ─── Vanguard Policy ─────────────────────────────────────────────
 
 const SLOT_TABLE = [0, -60, 60, -120, 120, -180, 180, -240, 240];
@@ -152,6 +159,9 @@ const vanguardPolicy: SquadPolicy = {
     const active = enemies.filter(e => e.active);
     if (active.length === 0) return null;
 
+    const breaching = active.filter(e => isBreachThreat(e, rules));
+    if (breaching.length > 0) return closestEnemyToUnit(unit, breaching);
+
     const inRange = active.filter(e =>
       Phaser.Math.Distance.Between(unit.x, unit.y, e.x, e.y) <= unit.atkRange
     );
@@ -190,6 +200,7 @@ const vanguardPolicy: SquadPolicy = {
       reformMoveToSlot(unit, unitIndex, rules);
       unit.state = 'FORMING';
       unit.guardThreatSince = 0;
+      unit.vanPhase = 'formation';
       return null;
     }
 
@@ -204,14 +215,14 @@ const vanguardPolicy: SquadPolicy = {
 
     // ── Threat detection ──
     let threatened = false;
+    let breachDetected = false;
     for (const e of rules.enemies) {
       if (!e.active) continue;
-      if (Phaser.Math.Distance.Between(rules.player.x, rules.player.y, e.x, e.y) < protR) { threatened = true; break; }
-      if (Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, e.x, e.y) < protR2) { threatened = true; break; }
-      const relX = e.x - rules.lineAnchor.x;
-      const relY = e.y - rules.lineAnchor.y;
-      const dot = relX * rules.dir.x + relY * rules.dir.y;
-      if (dot < -breachD) { threatened = true; break; }
+      if (Phaser.Math.Distance.Between(rules.player.x, rules.player.y, e.x, e.y) < protR) { threatened = true; }
+      else if (Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, e.x, e.y) < protR2) { threatened = true; }
+      else if (Phaser.Math.Distance.Between(unit.x, unit.y, e.x, e.y) < protR) { threatened = true; }
+      if (isBreachThreat(e, rules)) { breachDetected = true; threatened = true; }
+      if (breachDetected) break;
     }
 
     // Track continuous threat duration
@@ -229,7 +240,8 @@ const vanguardPolicy: SquadPolicy = {
       for (const e of rules.enemies) {
         if (!e.active) continue;
         if (Phaser.Math.Distance.Between(rules.player.x, rules.player.y, e.x, e.y) < protROut ||
-            Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, e.x, e.y) < protROut) {
+            Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, e.x, e.y) < protROut ||
+            Phaser.Math.Distance.Between(unit.x, unit.y, e.x, e.y) < protROut) {
           anyClose = true; break;
         }
       }
@@ -240,10 +252,11 @@ const vanguardPolicy: SquadPolicy = {
 
     const isIntercepting = unit.guardThreatSince > 0 && (rules.now - unit.guardThreatSince >= threatMs);
 
-    // ── INTERCEPT: push slots forward ──
+    // ── INTERCEPT: push slots forward (or backward on breach) ──
     if (isIntercepting) {
-      unit.slotX += rules.dir.x * interceptPush;
-      unit.slotY += rules.dir.y * interceptPush;
+      const pushDir = breachDetected ? -1 : 1;
+      unit.slotX += rules.dir.x * interceptPush * pushDir;
+      unit.slotY += rules.dir.y * interceptPush * pushDir;
     }
 
     // ── Hysteresis LINE_HOLD ──
@@ -257,13 +270,77 @@ const vanguardPolicy: SquadPolicy = {
     const holdMult = vb.holdSpeedMult ?? DEF_VAN.holdSpeedMult!;
     let speedMult = isHolding ? rules.speedMult * holdMult : rules.speedMult;
     if (threatened && !isIntercepting) speedMult *= threatSpeedMult;
-    moveToSlot(unit, speedMult, rules);
+
+    // ── Melee step-out ──
+    const meleeR = vb.meleeR ?? DEF_VAN.meleeR!;
+    const meleeMaxDrift = vb.meleeMaxDrift ?? DEF_VAN.meleeMaxDrift!;
+    const meleeChaseR = vb.meleeChaseR ?? DEF_VAN.meleeChaseR!;
+    const meleeSpeedMult = vb.meleeSpeedMult ?? DEF_VAN.meleeSpeedMult!;
+
+    let effectiveTarget = target;
+
+    // 근접 위협 탐지: 유닛 기준 meleeR 이내 가장 가까운 적
+    let nearestMelee: EnemyBase | null = null;
+    let nearestMeleeDist = Infinity;
+    for (const e of rules.enemies) {
+      if (!e.active) continue;
+      const d = Phaser.Math.Distance.Between(unit.x, unit.y, e.x, e.y);
+      if (d < meleeR && d < nearestMeleeDist) {
+        nearestMeleeDist = d;
+        nearestMelee = e;
+      }
+    }
+
+    // Phase 전환
+    if (unit.vanPhase === 'formation' && nearestMelee && effectiveTarget) {
+      unit.vanPhase = 'melee';
+    }
+    if (unit.vanPhase === 'melee') {
+      const meleeTarget = nearestMelee ?? effectiveTarget;
+      const hasValidTarget = meleeTarget && meleeTarget.active;
+      const distToTarget = hasValidTarget
+        ? Phaser.Math.Distance.Between(unit.x, unit.y, meleeTarget.x, meleeTarget.y) : Infinity;
+      const distFromSlot = Phaser.Math.Distance.Between(unit.x, unit.y, unit.slotX, unit.slotY);
+
+      if (!hasValidTarget || distToTarget > meleeChaseR || distFromSlot > meleeMaxDrift) {
+        unit.vanPhase = 'formation';
+      }
+    }
+
+    // 이동 분기
+    if (unit.vanPhase === 'melee' && nearestMelee && nearestMelee.active) {
+      if (nearestMeleeDist <= unit.atkRange) {
+        // 공격 사거리 이내: 정지
+        unit.setVelocity(0, 0);
+      } else {
+        const angle = Phaser.Math.Angle.Between(unit.x, unit.y, nearestMelee.x, nearestMelee.y);
+        const spd = unit.unitSpeed * speedMult * meleeSpeedMult;
+        const vx = Math.cos(angle) * spd;
+        const vy = Math.sin(angle) * spd;
+
+        // drift clamp: 예상 위치가 slot에서 meleeMaxDrift 초과하면 slot 방향으로 보정
+        const dt = rules.dtMs / 1000;
+        const nextX = unit.x + vx * dt;
+        const nextY = unit.y + vy * dt;
+        const nextDriftDist = Phaser.Math.Distance.Between(nextX, nextY, unit.slotX, unit.slotY);
+        if (nextDriftDist > meleeMaxDrift) {
+          moveToSlot(unit, speedMult, rules);
+        } else {
+          unit.setVelocity(vx, vy);
+        }
+      }
+
+      // melee 중에는 effectiveTarget을 근접 적으로 강제
+      effectiveTarget = nearestMelee;
+    } else {
+      unit.vanPhase = 'formation';
+      moveToSlot(unit, speedMult, rules);
+    }
 
     // ── Target filtering: INTERCEPT filters out targets beyond protROut ──
-    let effectiveTarget = target;
-    if (isIntercepting && target && target.active) {
-      const dToPlayer = Phaser.Math.Distance.Between(rules.player.x, rules.player.y, target.x, target.y);
-      const dToLeader = Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, target.x, target.y);
+    if (isIntercepting && unit.vanPhase !== 'melee' && effectiveTarget && effectiveTarget.active) {
+      const dToPlayer = Phaser.Math.Distance.Between(rules.player.x, rules.player.y, effectiveTarget.x, effectiveTarget.y);
+      const dToLeader = Phaser.Math.Distance.Between(rules.archerLeader.x, rules.archerLeader.y, effectiveTarget.x, effectiveTarget.y);
       if (dToPlayer >= protROut && dToLeader >= protROut) effectiveTarget = null;
     }
 
@@ -273,9 +350,14 @@ const vanguardPolicy: SquadPolicy = {
       return null;
     }
 
-    // Target lock (0.8s)
+    // Target lock (0.8s) — breach targets override non-breach locks
     if (unit.lockedTarget && rules.now < unit.targetLockUntil && (unit.lockedTarget as EnemyBase).active) {
-      // keep locked
+      const lockedIsBreach = isBreachThreat(unit.lockedTarget as EnemyBase, rules);
+      const newIsBreach = effectiveTarget ? isBreachThreat(effectiveTarget, rules) : false;
+      if (newIsBreach && !lockedIsBreach) {
+        unit.lockedTarget = effectiveTarget;
+        unit.targetLockUntil = rules.now + (vb.targetLockMs ?? DEF_VAN.targetLockMs!);
+      }
     } else {
       unit.lockedTarget = effectiveTarget;
       unit.targetLockUntil = rules.now + (vb.targetLockMs ?? DEF_VAN.targetLockMs!);
@@ -285,11 +367,14 @@ const vanguardPolicy: SquadPolicy = {
     if (lockTarget && lockTarget.active) {
       const dToLock = Phaser.Math.Distance.Between(unit.x, unit.y, lockTarget.x, lockTarget.y);
 
-      // kitingVow: vanguard can't attack beyond aura boundary
+      // kitingVow: out-of-aura vanguard gets CD penalty (not ban)
       const kitingBound = rules.keystone === 'kitingVow' && rules.aura.active;
-      const lockInAura = !kitingBound || Phaser.Math.Distance.Between(rules.aura.cx, rules.aura.cy, lockTarget.x, lockTarget.y) <= rules.aura.r;
+      const inAura = !kitingBound || Phaser.Math.Distance.Between(rules.aura.cx, rules.aura.cy, lockTarget.x, lockTarget.y) <= rules.aura.r;
+      const effectiveNextAtk = (!inAura && kitingBound)
+        ? unit.nextAtk + ((rules.modifierKeystones.kitingVow?.outAuraCdMult ?? 2.0) - 1) * rules.getAttackCD(unit)
+        : unit.nextAtk;
 
-      if (dToLock <= unit.atkRange && rules.now >= unit.nextAtk && lockInAura) {
+      if (dToLock <= unit.atkRange && rules.now >= effectiveNextAtk) {
         unit.state = 'ENGAGE';
         return lockTarget;
       }
@@ -570,6 +655,9 @@ const cavalryPolicy: SquadPolicy = {
     const active = enemies.filter(e => e.active);
     if (active.length === 0) return null;
 
+    const breaching = active.filter(e => isBreachThreat(e, rules));
+    if (breaching.length > 0) return closestEnemyToUnit(unit, breaching);
+
     // Use cover center for gap-based target search
     const gapR = rules.cavalryBalance.gapTargetRadius ?? DEF_CAV.gapTargetRadius!;
     const cx = unit.coverX, cy = unit.coverY;
@@ -633,22 +721,33 @@ const cavalryPolicy: SquadPolicy = {
         const hasTarget = target && target.active;
         const maxIntercepts = cb.maxConcurrentIntercepts ?? DEF_CAV.maxConcurrentIntercepts!;
 
-        if (hasTarget && rules.cavalryInterceptCount < maxIntercepts) {
-          // Check target is within gapRIn of cover center
-          const distTargetToCover = Phaser.Math.Distance.Between(target!.x, target!.y, cx, cy);
-          if (distTargetToCover < gapRIn) {
-            // Start or continue tracking
-            if (unit.cavSeenTargetSince === 0) {
-              unit.cavSeenTargetSince = rules.now;
-            } else if (rules.now - unit.cavSeenTargetSince >= seenMs) {
-              // Confirmed — enter intercept
-              unit.cavPhase = 'intercept';
-              unit.cavPhaseTimer = rules.now;
-              unit.cavDisruptHits = 0;
+        if (hasTarget && target!.active) {
+          const targetIsBreach = isBreachThreat(target!, rules);
+          const effectiveMax = targetIsBreach ? maxIntercepts + 1 : maxIntercepts;
+
+          if (rules.cavalryInterceptCount < effectiveMax) {
+            const distTargetToCover = Phaser.Math.Distance.Between(target!.x, target!.y, cx, cy);
+
+            if (targetIsBreach || distTargetToCover < gapRIn) {
+              if (targetIsBreach) {
+                // Breach: skip seenMs, intercept immediately
+                unit.cavPhase = 'intercept';
+                unit.cavPhaseTimer = rules.now;
+                unit.cavDisruptHits = 0;
+                unit.cavSeenTargetSince = 0;
+              } else if (unit.cavSeenTargetSince === 0) {
+                unit.cavSeenTargetSince = rules.now;
+              } else if (rules.now - unit.cavSeenTargetSince >= seenMs) {
+                unit.cavPhase = 'intercept';
+                unit.cavPhaseTimer = rules.now;
+                unit.cavDisruptHits = 0;
+                unit.cavSeenTargetSince = 0;
+              }
+            } else {
               unit.cavSeenTargetSince = 0;
             }
           } else {
-            unit.cavSeenTargetSince = 0; // target left inner radius, reset
+            unit.cavSeenTargetSince = 0;
           }
         } else {
           unit.cavSeenTargetSince = 0;
@@ -665,9 +764,9 @@ const cavalryPolicy: SquadPolicy = {
           return null;
         }
 
-        // Target left outer radius — return to cover (hysteresis)
+        // Target left outer radius — return to cover (hysteresis), but not for breach threats
         const distTargetToCover = Phaser.Math.Distance.Between(target.x, target.y, cx, cy);
-        if (distTargetToCover > gapROut) {
+        if (distTargetToCover > gapROut && !isBreachThreat(target, rules)) {
           unit.cavPhase = 'seek_gap';
           unit.cavSeenTargetSince = 0;
           moveToSlot(unit, rules.speedMult, rules);

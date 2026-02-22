@@ -748,9 +748,6 @@ export class GameScene extends Phaser.Scene {
 
   private _canAttack(): boolean {
     if (!this.player.canAttack()) return false;
-    const ks = this.build.keystone;
-    if (ks === 'stillnessStance' && this.player.isMoving) return false;
-    if (ks === 'momentumMode' && !this.player.isMoving) return false;
     return true;
   }
 
@@ -823,36 +820,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private _canArcherFire(): boolean {
-    const ks = this.build.keystone;
-
-    if (ks === 'closePact') {
-      // Archers fire only when commander close to an enemy
-      const nearest = this._nearestEnemyDist();
-      return nearest <= CLOSE_RANGE;
-    }
-    if (ks === 'kitingVow') {
-      // Archers fire only when commander-to-mark dist >= minDistToMark
-      const minDist = this.balanceData.modifiers.keystones.kitingVow?.minDistToMark ?? 200;
-      if (this.tacticalMarkTarget && this.tacticalMarkTarget.active) {
-        const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.tacticalMarkTarget.x, this.tacticalMarkTarget.y);
-        return d >= minDist;
-      }
-      // No mark → archers fire freely
-      return true;
-    }
-    if (ks === 'stillnessStance') {
-      // Archers fire only when anchor active AND mark target in anchor
-      if (!this.auraActive) return false;
-      if (this.tacticalMarkTarget && this.tacticalMarkTarget.active) {
-        const d = Phaser.Math.Distance.Between(this.auraCenterX, this.auraCenterY, this.tacticalMarkTarget.x, this.tacticalMarkTarget.y);
-        return d <= this.auraRadius;
-      }
-      return false;
-    }
-    if (ks === 'momentumMode') {
-      // Archers fire only when commander is moving
-      return this.player.isMoving;
-    }
+    // No keystone hard locks — all keystones allow fire.
+    // Speed bonuses are applied in _getArmyAttackCD().
     return true;
   }
 
@@ -991,7 +960,21 @@ export class GameScene extends Phaser.Scene {
     const ks = this.build.keystone;
 
     if (charged) mult *= this.balanceData.commander.chargeDamageMult ?? 3;
-    if (ks === 'closePact' && dist > CLOSE_RANGE) return 0;
+
+    // Keystone efficiency gradients (no hard locks)
+    const mk = this.balanceData.modifiers.keystones;
+    if (ks === 'closePact') {
+      if (dist > CLOSE_RANGE) mult *= mk.closePact?.farDmgMult ?? 0.2;
+      else mult *= mk.closePact?.closeDmgMult ?? 1.4;
+    }
+    if (ks === 'stillnessStance') {
+      if (this.player.isMoving) mult *= mk.stillnessStance?.dmgWhileMoving ?? 0.35;
+      else mult *= mk.stillnessStance?.dmgWhileStill ?? 1.5;
+    }
+    if (ks === 'momentumMode') {
+      if (!this.player.isMoving) mult *= mk.momentumMode?.dmgWhileStill ?? 0.3;
+      else mult *= mk.momentumMode?.dmgWhileMoving ?? 1.3;
+    }
 
     if (ks === 'singleTargetOath') {
       if (this.k5LastTarget && this.k5LastTarget !== enemy && this.k5LastTarget.active) {
@@ -1489,6 +1472,7 @@ export class GameScene extends Phaser.Scene {
       cavalryBalance: this.balanceData.units.cavalry,
       gameBalance: this.balanceData.game,
       modifierNodes: this.balanceData.modifiers.nodes,
+      modifierKeystones: this.balanceData.modifiers.keystones,
       archerFired: this.archerFiredThisWindow,
       getAttackCD: (u) => this._getArmyAttackCD(u),
     };
@@ -1655,6 +1639,28 @@ export class GameScene extends Phaser.Scene {
         cd *= 0.7;
       }
     }
+
+    // Keystone archer CD bonuses
+    if (u.squadType === 'archer') {
+      const ks = this.build.keystone;
+      const mk = this.balanceData.modifiers.keystones;
+      if (ks === 'closePact' && this._nearestEnemyDist() <= CLOSE_RANGE) {
+        cd *= mk.closePact?.archerCdMult ?? 0.6;
+      }
+      if (ks === 'momentumMode' && this.player.isMoving) {
+        cd *= mk.momentumMode?.archerCdMult ?? 0.7;
+      }
+      if (ks === 'stillnessStance' && this.auraActive && this.tacticalMarkTarget?.active) {
+        const d = Phaser.Math.Distance.Between(this.auraCenterX, this.auraCenterY, this.tacticalMarkTarget.x, this.tacticalMarkTarget.y);
+        if (d <= this.auraRadius) cd *= mk.stillnessStance?.archerCdMult ?? 0.6;
+      }
+      if (ks === 'kitingVow' && this.tacticalMarkTarget?.active) {
+        const minDist = mk.kitingVow?.minDistToMark ?? 160;
+        const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.tacticalMarkTarget.x, this.tacticalMarkTarget.y);
+        if (d >= minDist) cd *= mk.kitingVow?.archerCdMult ?? 0.65;
+      }
+    }
+
     return Math.round(cd);
   }
 
@@ -1883,6 +1889,8 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (e instanceof Chaser) {
+        const now = this.time.now;
+        if (now < e.nextAtk) continue;
         for (const u of this.armyUnits) {
           if (!u.active) continue;
           if (Phaser.Math.Distance.Between(e.x, e.y, u.x, u.y) < 24) {
@@ -1890,6 +1898,7 @@ export class GameScene extends Phaser.Scene {
             if (this.build.item === 'ironSkin' && !this.player.isMoving) dmg = 0;
             if (dmg > 0) {
               this._damageUnit(u, dmg);
+              e.nextAtk = now + e.atkCD;
               if (u.active) { u.setAlpha(0.4); this.time.delayedCall(100, () => { if (u.active) u.setAlpha(1); }); }
             }
             break;
@@ -2597,6 +2606,7 @@ export class GameScene extends Phaser.Scene {
         const d = new Dasher(this, x, y);
         const es = bal.enemies.dasher;
         d.hp = es.maxHp;
+        d.atkCD = es.atkCD ?? 1000;
         d.baseSpeed = es.speed;
         d.speed = es.speed;
         if (es.dashWindup !== undefined) d.dashWindup = es.dashWindup;
@@ -2621,6 +2631,7 @@ export class GameScene extends Phaser.Scene {
         const b = new BufferEnemy(this, x, y);
         const es = bal.enemies.buffer;
         b.hp = es.maxHp;
+        b.atkCD = es.atkCD ?? 1000;
         const speed = es.speed + this.rng() * (es.speedRange ?? 15);
         b.baseSpeed = speed;
         b.speed = speed;
@@ -2632,6 +2643,7 @@ export class GameScene extends Phaser.Scene {
         const c = new Chaser(this, x, y);
         const es = bal.enemies.chaser;
         c.hp = es.maxHp;
+        c.atkCD = es.atkCD ?? 1000;
         const speed = es.speed + this.rng() * (es.speedRange ?? 20);
         c.baseSpeed = speed;
         c.speed = speed;

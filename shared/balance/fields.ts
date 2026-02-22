@@ -44,9 +44,9 @@ function unitBase(d: Record<string, number>): FieldSpec[] {
   ];
 }
 
-export const VANGUARD_BASE_FIELDS = unitBase({ maxHp: 2, dmg: 1, atkCD: 650, unitSpeed: 200, range: 50, engageRadius: 170, returnRadius: 220 });
-export const ARCHER_BASE_FIELDS   = unitBase({ maxHp: 1, dmg: 1, atkCD: 900, unitSpeed: 150, range: 420, engageRadius: 120, returnRadius: 160 });
-export const CAVALRY_BASE_FIELDS  = unitBase({ maxHp: 2, dmg: 1, atkCD: 775, unitSpeed: 300, range: 65, engageRadius: 160, returnRadius: 210 });
+export const VANGUARD_BASE_FIELDS = unitBase({ maxHp: 6, dmg: 1, atkCD: 650, unitSpeed: 200, range: 50, engageRadius: 170, returnRadius: 220 });
+export const ARCHER_BASE_FIELDS   = unitBase({ maxHp: 3, dmg: 1, atkCD: 900, unitSpeed: 150, range: 420, engageRadius: 120, returnRadius: 160 });
+export const CAVALRY_BASE_FIELDS  = unitBase({ maxHp: 5, dmg: 1, atkCD: 775, unitSpeed: 300, range: 65, engageRadius: 160, returnRadius: 210 });
 
 // ─── Enemy base factory ──────────────────────────────────
 
@@ -54,14 +54,15 @@ function enemyBase(d: Record<string, number>): FieldSpec[] {
   return [
     { key: 'maxHp',      default: d.maxHp,      label: 'Max HP',      tip: '최대 체력' },
     { key: 'touchDmg',   default: d.touchDmg,   label: 'Touch Dmg',   tip: '접촉 피해' },
+    { key: 'atkCD',      default: d.atkCD,       label: 'Atk CD (ms)', tip: '공격 쿨다운' },
     { key: 'speed',      default: d.speed,       label: 'Speed',       tip: '이동 속도' },
     { key: 'speedRange', default: d.speedRange,  label: 'Speed Range', tip: '속도 변동 범위' },
   ];
 }
 
-export const CHASER_BASE_FIELDS = enemyBase({ maxHp: 2, touchDmg: 1, speed: 75, speedRange: 20 });
-export const DASHER_BASE_FIELDS = enemyBase({ maxHp: 2, touchDmg: 1, speed: 95, speedRange: 0 });
-export const BUFFER_BASE_FIELDS = enemyBase({ maxHp: 3, touchDmg: 0, speed: 48, speedRange: 15 });
+export const CHASER_BASE_FIELDS = enemyBase({ maxHp: 2, touchDmg: 1, atkCD: 1000, speed: 75, speedRange: 20 });
+export const DASHER_BASE_FIELDS = enemyBase({ maxHp: 2, touchDmg: 1, atkCD: 1000, speed: 95, speedRange: 0 });
+export const BUFFER_BASE_FIELDS = enemyBase({ maxHp: 3, touchDmg: 1, atkCD: 1000, speed: 48, speedRange: 15 });
 
 // ─── Commander ───────────────────────────────────────────
 
@@ -72,7 +73,7 @@ export const COMMANDER_FIELDS: FieldSpec[] = [
   { key: 'dashCD',          default: 1400, label: 'Dash CD (ms)',       tip: '대시 쿨다운' },
   { key: 'dashDuration',    default: 180,  label: 'Dash Duration (ms)', tip: '대시 지속 시간' },
   { key: 'dashSpeed',       default: 480,  label: 'Dash Speed',         tip: '대시 속도' },
-  { key: 'iframes',         default: 1200, label: 'I-Frames (ms)',      tip: '무적 지속 시간' },
+  { key: 'iframes',         default: 400,  label: 'I-Frames (ms)',      tip: '무적 지속 시간' },
   { key: 'reformCD',        default: 2200, label: 'Reform CD (ms)',     tip: '재편성 쿨다운' },
   { key: 'reformThreshold', default: 220,  label: 'Reform Hold (ms)',   tip: '재편성 발동 홀드 시간' },
 ];
@@ -118,6 +119,10 @@ export const VANGUARD_FORMATION_FIELDS: FieldSpec[] = [
   { key: 'guardThreatMs',         default: 120, label: 'Guard Threat (ms)', tip: '위협 연속 감지 시간' },
   { key: 'guardThreatSpeedMult',  default: 0.6, label: 'Threat Speed x',   tip: '위협 감지 시 이동 감속', step: 0.01 },
   { key: 'a3PushForce',           default: 50,  label: 'A3 Push Force',    tip: 'A3 노드 후퇴 방지 밀기 힘' },
+  { key: 'meleeR',                default: 80,  label: 'Melee R (px)',     tip: '근접 교전 트리거 거리' },
+  { key: 'meleeMaxDrift',         default: 60,  label: 'Melee Drift (px)', tip: '슬롯에서 최대 이탈 거리' },
+  { key: 'meleeChaseR',           default: 120, label: 'Melee Chase (px)', tip: '타겟 추격 최대 거리' },
+  { key: 'meleeSpeedMult',        default: 1.2, label: 'Melee Speed x',   tip: '근접 교전 이동 속도 배율', step: 0.01 },
 ];
 
 // ─── Archer formation ────────────────────────────────────
@@ -127,7 +132,7 @@ export const ARCHER_FORMATION_FIELDS: FieldSpec[] = [
   { key: 'rank1Depth',       default: 320, label: 'Rank 1 Depth',    tip: '2열 깊이 (앵커 뒤 거리)' },
   { key: 'slotGap',          default: 70,  label: 'Slot Gap',        tip: '슬롯 간격' },
   { key: 'maxSpread',        default: 240, label: 'Max Spread',      tip: '최대 횡 전개 폭' },
-  { key: 'deadZone',         default: 120, label: 'Dead Zone',       tip: '사격 금지 구역 (리더 기준)' },
+  { key: 'deadZone',         default: 100, label: 'Dead Zone',       tip: '사격 금지 구역 (리더 기준)' },
   { key: 'retreatSpeedMult', default: 1.5, label: 'Retreat Speed x', tip: 'A4 후퇴 시 속도 배율', step: 0.01 },
   { key: 'normalSpeedMult',  default: 0.5, label: 'Normal Speed x',  tip: '일반 이동 속도 배율', step: 0.01 },
   { key: 'slotArrDist',      default: 30,  label: 'Slot Arrive (px)', tip: '슬롯 도착 판정 거리' },
@@ -187,11 +192,11 @@ export const DASHER_FIELDS: FieldSpec[] = [
   { key: 'dashWindup',      default: 450,  label: 'Dash Windup (ms)',     tip: '돌진 준비 시간 (텔레그래프)' },
   { key: 'dashSpeed',       default: 550,  label: 'Dash Speed',           tip: '돌진 속도' },
   { key: 'dashDuration',    default: 280,  label: 'Dash Duration (ms)',   tip: '돌진 지속 시간' },
-  { key: 'flashInterval',   default: 80,   label: 'Flash Interval (ms)',  tip: '준비 중 깜빡임 주기' },
+  { key: 'flashInterval',   default: 120,  label: 'Flash Interval (ms)',  tip: '준비 중 깜빡임 주기' },
   { key: 'telegraphLength', default: 200,  label: 'Telegraph Length (px)', tip: '텔레그래프 라인 길이' },
   { key: 'cooldownDuration', default: 1200, label: 'Cooldown (ms)',       tip: '돌진 후 쿨다운' },
-  { key: 'penetrationDist', default: 220,  label: 'Penetration Dist',    tip: '침투 거리' },
-  { key: 'disruptDuration', default: 900,  label: 'Disrupt Duration (ms)', tip: '붕괴 지속 시간 (정지+넉백)' },
+  { key: 'penetrationDist', default: 170,  label: 'Penetration Dist',    tip: '침투 거리' },
+  { key: 'disruptDuration', default: 550,  label: 'Disrupt Duration (ms)', tip: '붕괴 지속 시간 (정지+넉백)' },
   { key: 'egressDuration',  default: 1200, label: 'Egress Duration (ms)', tip: '이탈 지속 시간' },
   { key: 'egressSpeed',     default: 95,   label: 'Egress Speed',        tip: '이탈 속도' },
 ];
@@ -211,7 +216,7 @@ export const GAME_SPAWN_FIELDS: FieldSpec[] = [
   { key: 'platoonSizeDasher',    default: 5,    label: 'Platoon: Dasher',     tip: '돌진병 소대 인원 수' },
   { key: 'platoonSizeBuffer',    default: 5,    label: 'Platoon: Buffer',     tip: '버퍼 소대 인원 수' },
   { key: 'volleyCycle',          default: 900,  label: 'Volley Cycle (ms)',    tip: '일제 사격 주기' },
-  { key: 'volleyWindow',         default: 120,  label: 'Volley Window (ms)',   tip: '일제 사격 창 (발사 가능 구간)' },
+  { key: 'volleyWindow',         default: 250,  label: 'Volley Window (ms)',   tip: '일제 사격 창 (발사 가능 구간)' },
   { key: 'commandAuraRadius',    default: 260,  label: 'Cmd Aura Radius',     tip: '지휘 오라 반경' },
 ];
 
@@ -365,20 +370,31 @@ export const MODIFIER_FIELDS: Record<ModCategory, Record<string, FieldSpec[]>> =
   },
   keystones: {
     closePact: [
-      { key: 'auraRadiusMult', default: 0.77, label: 'Aura Radius x', tip: '오라 반경 배율', step: 0.01 },
+      { key: 'auraRadiusMult', default: 0.77, label: 'Aura Radius x',    tip: '오라 반경 배율', step: 0.01 },
+      { key: 'farDmgMult',     default: 0.2,  label: 'Far Dmg Mult',     tip: '원거리 데미지 배율', step: 0.01 },
+      { key: 'closeDmgMult',   default: 1.4,  label: 'Close Dmg Mult',   tip: '근접 데미지 보너스 배율', step: 0.01 },
+      { key: 'archerCdMult',   default: 0.6,  label: 'Archer CD (close)', tip: '근접 시 궁병 공속 배율', step: 0.01 },
     ],
     momentumMode: [
-      { key: 'movingMult',       default: 1.5, label: 'Moving Mult',     tip: '이동 시 군대 속도 배율', step: 0.01 },
-      { key: 'stillMult',        default: 0.5, label: 'Still Mult',      tip: '정지 시 군대 속도 배율', step: 0.01 },
-      { key: 'dasherWindupMult', default: 1.2, label: 'Dasher Windup x', tip: '대셔 준비 시간 배율', step: 0.01 },
+      { key: 'movingMult',       default: 1.5, label: 'Moving Mult',      tip: '이동 시 군대 속도 배율', step: 0.01 },
+      { key: 'stillMult',        default: 0.5, label: 'Still Mult',       tip: '정지 시 군대 속도 배율', step: 0.01 },
+      { key: 'dasherWindupMult', default: 1.2, label: 'Dasher Windup x',  tip: '대셔 준비 시간 배율', step: 0.01 },
+      { key: 'dmgWhileStill',    default: 0.3, label: 'Still Dmg Mult',   tip: '정지 시 데미지 배율', step: 0.01 },
+      { key: 'dmgWhileMoving',   default: 1.3, label: 'Moving Dmg Mult',  tip: '이동 시 데미지 보너스', step: 0.01 },
+      { key: 'archerCdMult',     default: 0.7, label: 'Archer CD (move)', tip: '이동 시 궁병 공속 배율', step: 0.01 },
     ],
     stillnessStance: [
-      { key: 'anchorLinger', default: 2000, label: 'Anchor Linger (ms)', tip: '정지 앵커 잔류 시간' },
+      { key: 'anchorLinger',    default: 2000, label: 'Anchor Linger (ms)',  tip: '정지 앵커 잔류 시간' },
+      { key: 'dmgWhileMoving',  default: 0.35, label: 'Moving Dmg Mult',    tip: '이동 중 데미지 배율', step: 0.01 },
+      { key: 'dmgWhileStill',   default: 1.5,  label: 'Still Dmg Mult',     tip: '정지 시 데미지 보너스', step: 0.01 },
+      { key: 'archerCdMult',    default: 0.6,  label: 'Archer CD (anchor)', tip: '앵커+마크 시 궁병 공속 배율', step: 0.01 },
     ],
     kitingVow: [
-      { key: 'closeAtkCdMult', default: 2.0, label: 'Close Atk CD x',  tip: '근접 공격 쿨다운 배율', step: 0.01 },
-      { key: 'farDashCdMult',  default: 0.7, label: 'Far Dash CD x',   tip: '원거리 대시 쿨다운 배율', step: 0.01 },
-      { key: 'minDistToMark',  default: 200, label: 'Min Dist to Mark', tip: '궁병 사격 최소 거리' },
+      { key: 'closeAtkCdMult', default: 2.0,  label: 'Close Atk CD x',   tip: '근접 공격 쿨다운 배율', step: 0.01 },
+      { key: 'farDashCdMult',  default: 0.7,  label: 'Far Dash CD x',    tip: '원거리 대시 쿨다운 배율', step: 0.01 },
+      { key: 'minDistToMark',  default: 160,  label: 'Min Dist to Mark',  tip: '보너스 판정 거리' },
+      { key: 'archerCdMult',   default: 0.65, label: 'Archer CD (far)',   tip: '원거리 마크 시 궁병 공속 배율', step: 0.01 },
+      { key: 'outAuraCdMult',  default: 2.0,  label: 'Out Aura CD Mult', tip: '오라 밖 뱅가드 공속 페널티', step: 0.01 },
     ],
   },
   nodes: {
@@ -472,10 +488,10 @@ export const SUPPORT_DESCRIPTIONS: Record<string, string> = {
 };
 
 export const KEYSTONE_DESCRIPTIONS: Record<string, string> = {
-  closePact: '오라 축소 · 근접 자동 조준',
-  momentumMode: '이동 시 군대↑↑ 정지 시 ↓↓',
-  stillnessStance: '정지 앵커 잔류',
-  kitingVow: '근접 공속↓ 원거리 대시↑',
+  closePact: '근접 보너스 · 원거리 감쇄',
+  momentumMode: '이동 보너스 · 정지 감쇄',
+  stillnessStance: '정지 보너스 · 이동 감쇄',
+  kitingVow: '거리 유지 보너스 · 근접 감쇄',
 };
 
 export const NODE_DESCRIPTIONS: Record<string, string> = {

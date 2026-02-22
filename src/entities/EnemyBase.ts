@@ -14,6 +14,8 @@ export class EnemyBase extends Phaser.Physics.Arcade.Image {
   baseSpeed: number;
   speed: number;
   markStacks = 0;
+  atkCD = 1000;
+  nextAtk = 0;
 
   private slows: Array<{ factor: number; until: number }> = [];
   private frozenUntil = 0;

@@ -112,7 +112,7 @@ function validate(data: any): void {
     checkNum(en.touchDmg, `enemies.${e}.touchDmg`);
     checkNum(en.speed, `enemies.${e}.speed`);
     // Optional fields: validate if present
-    for (const k of ['dashWindup','dashSpeed','dashDuration','disruptDuration','egressDuration','egressSpeed',
+    for (const k of ['atkCD','dashWindup','dashSpeed','dashDuration','disruptDuration','egressDuration','egressSpeed',
       'penetrationDist','lineHoldDist','cohesionRadius','slotSpacing','lineHoldSpeedMult','auraRadius','auraSpeedBoost',
       'speedRange','patrolDuration','flashInterval','telegraphLength','cooldownDuration']) {
       if (en[k] !== undefined) checkNum(en[k], `enemies.${e}.${k}`);
@@ -154,5 +154,5 @@ function validate(data: any): void {
 
 function checkNum(val: any, label: string): void {
   if (typeof val !== 'number' || isNaN(val)) throw new Error(`${label} must be a number`);
-  if (val < 0 || val > 9999) throw new Error(`${label} out of range (0-9999)`);
+  if (val < 0 || val > 99999) throw new Error(`${label} out of range (0-99999)`);
 }

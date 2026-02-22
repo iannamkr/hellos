@@ -55,6 +55,7 @@ export class ArmyUnit extends Phaser.Physics.Arcade.Image {
   coverX = 0;              // gap 커버 중심 (오프셋 없음)
   coverY = 0;
   guardThreatSince = 0;    // 위협 연속 감지 시작 시각 (0 = 미추적)
+  vanPhase: 'formation' | 'melee' = 'formation';
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: SquadType) {
     const tex = type === 'vanguard' ? 'unit_vanguard' : type === 'archer' ? 'unit_archer' : 'unit_cavalry';

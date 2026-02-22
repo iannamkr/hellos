@@ -64,8 +64,8 @@ describe('ArmyUnit', () => {
     });
 
     it('sets HP from config', () => {
-      expect(unit.hp).toBe(2);
-      expect(unit.maxHp).toBe(2);
+      expect(unit.hp).toBe(6);
+      expect(unit.maxHp).toBe(6);
     });
 
     it('ensures engageRadius < returnRadius', () => {

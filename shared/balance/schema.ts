@@ -90,6 +90,11 @@ export interface UnitStats {
   guardThreatSpeedMult?: number;
   // Vanguard A3 push
   a3PushForce?: number;
+  // Vanguard melee step-out
+  meleeR?: number;
+  meleeMaxDrift?: number;
+  meleeChaseR?: number;
+  meleeSpeedMult?: number;
   // Archer
   slotArrDist?: number;
   // Cavalry spread
@@ -102,6 +107,7 @@ export interface UnitStats {
 export interface EnemyStats {
   maxHp: number;
   touchDmg: number;
+  atkCD?: number;
   speed: number;
   speedRange?: number;
   // Dasher-specific
