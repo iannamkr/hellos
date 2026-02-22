@@ -417,12 +417,10 @@ const archerPolicy: SquadPolicy = {
     const active = enemies.filter(e => e.active);
     if (active.length === 0) return null;
 
-    // Leader-based range check: use archerLeader position for range, not individual archer
-    const ldr = rules.archerLeader;
     const dz = rules.archerBalance.deadZone ?? DEF_ARC.deadZone!;
     const inRange = active.filter(e => {
-      const dToLeader = Phaser.Math.Distance.Between(ldr.x, ldr.y, e.x, e.y);
-      return dToLeader <= unit.atkRange && dToLeader >= dz;
+      const dToUnit = Phaser.Math.Distance.Between(unit.x, unit.y, e.x, e.y);
+      return dToUnit <= unit.atkRange && dToUnit >= dz;
     });
     const inRangeAura = inRange.filter(e =>
       rules.aura.active && Phaser.Math.Distance.Between(rules.aura.cx, rules.aura.cy, e.x, e.y) <= rules.aura.r
@@ -486,13 +484,11 @@ const archerPolicy: SquadPolicy = {
       unit.setVelocity(0, 0);
     }
 
-    // Leader-based fire range: use archerLeader distance
-    const ldr = rules.archerLeader;
-    const leaderDist = Phaser.Math.Distance.Between(ldr.x, ldr.y, target.x, target.y);
-    const inFireRange = leaderDist <= unit.atkRange && leaderDist >= (rules.archerBalance.deadZone ?? DEF_ARC.deadZone!);
+    const unitDist = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
+    const inFireRange = unitDist <= unit.atkRange && unitDist >= (rules.archerBalance.deadZone ?? DEF_ARC.deadZone!);
 
-    // B2: no fire if target within 180px of archer leader
-    const b2Block = rules.hasNode('B2') && leaderDist < (rules.modifierNodes?.archerMinRange?.blockDist ?? DEFAULT_BALANCE.modifiers.nodes.archerMinRange!.blockDist);
+    // B2: no fire if target within blockDist of this archer unit
+    const b2Block = rules.hasNode('B2') && unitDist < (rules.modifierNodes?.archerMinRange?.blockDist ?? DEFAULT_BALANCE.modifiers.nodes.archerMinRange!.blockDist);
     const inVolleyWindow = rules.isVolleyOpen && !rules.archerFired.has(unit);
     // B6: extra volley on marked target
     const b6Bonus = rules.hasNode('B6') && target === rules.mark && rules.archerFired.has(unit);

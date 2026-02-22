@@ -255,6 +255,9 @@ export class GameScene extends Phaser.Scene {
   // Formation line visualization
   private formationGfx!: Phaser.GameObjects.Graphics;
 
+  // Archer range circles (always visible)
+  private archerBandGfx!: Phaser.GameObjects.Graphics;
+
   constructor() { super({ key: 'GameScene' }); }
 
   // ═══════════════════════════════════════════════════════════════
@@ -427,6 +430,9 @@ export class GameScene extends Phaser.Scene {
       padding: { left: 8, right: 8, top: 6, bottom: 6 },
     }).setDepth(10001).setScrollFactor(0).setVisible(false);
 
+    // Archer range overlay (always visible)
+    this.archerBandGfx = this.add.graphics().setDepth(99);
+
     this.input.keyboard!.on('keydown-F', () => {
       this.debugOn = !this.debugOn;
       this.debugGfx.setVisible(this.debugOn);
@@ -569,6 +575,7 @@ export class GameScene extends Phaser.Scene {
     this._drawCooldowns();
     this._refreshSquadDisplay();
     if (this.debugOn) this._drawSquadDebug();
+    this._drawArcherBand();
     this._updateCameraZoom();
 
     // Camera follows anchor average
@@ -1597,6 +1604,35 @@ export class GameScene extends Phaser.Scene {
         g.moveTo(u.x, u.y);
         g.lineTo(u.cavTargetX, u.cavTargetY);
         g.strokePath();
+      }
+    }
+
+    // Reform guide: dotted lines from each unit to its slot
+    if (rules.isReforming) {
+      for (const u of this.armyUnits) {
+        if (!u.active) continue;
+        const col = COLOR[u.squadType];
+        g.lineStyle(1, col, 0.5);
+        const dx = u.slotX - u.x, dy = u.slotY - u.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 10) {
+          const nx = dx / len, ny = dy / len;
+          const dashLen = 6, gapLen = 5;
+          let traveled = 0;
+          g.beginPath();
+          while (traveled < len) {
+            const sx = u.x + nx * traveled;
+            const sy = u.y + ny * traveled;
+            const ex = Math.min(traveled + dashLen, len);
+            g.moveTo(sx, sy);
+            g.lineTo(u.x + nx * ex, u.y + ny * ex);
+            traveled = ex + gapLen;
+          }
+          g.strokePath();
+        }
+        // Slot destination marker
+        g.lineStyle(1, col, 0.4);
+        g.strokeCircle(u.slotX, u.slotY, 4);
       }
     }
   }
@@ -3694,6 +3730,68 @@ export class GameScene extends Phaser.Scene {
       })(),
     ];
     this.debugText.setText(lines.join('\n'));
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ARCHER BAND LINES (V key)
+  // ═══════════════════════════════════════════════════════════════
+
+  private _getArcherCentroid(): { x: number; y: number } | null {
+    let sx = 0, sy = 0, n = 0;
+    for (const u of this.armyUnits) {
+      if (u.active && u.squadType === 'archer') { sx += u.x; sy += u.y; n++; }
+    }
+    return n > 0 ? { x: sx / n, y: sy / n } : null;
+  }
+
+  private _drawArcherBand(): void {
+    const g = this.archerBandGfx;
+    g.clear();
+
+    const center = this._getArcherCentroid();
+    if (!center) return;
+
+    const ab = this.balanceData.units.archer;
+
+    // Dead zone radius (inner circle — archers can't fire here)
+    let inDist = ab.deadZone ?? 100;
+    if (this._hasNode('B2')) {
+      const b2Dist = this.balanceData.modifiers.nodes?.archerMinRange?.blockDist ?? 180;
+      inDist = Math.max(inDist, b2Dist);
+    }
+
+    // Max range radius (outer circle)
+    const outDist = ab.range ?? 420;
+
+    // Inner: red short dash
+    g.lineStyle(1, 0xff4444, 0.3);
+    this._drawDashedCircle(g, center.x, center.y, inDist, 10, 10);
+
+    // Outer: cyan long dash
+    g.lineStyle(1, 0x44ccff, 0.25);
+    this._drawDashedCircle(g, center.x, center.y, outDist, 20, 10);
+  }
+
+  private _drawDashedCircle(
+    g: Phaser.GameObjects.Graphics,
+    cx: number, cy: number, r: number,
+    dash: number, gap: number,
+  ): void {
+    const circ = 2 * Math.PI * r;
+    const step = (dash + gap) / circ * (2 * Math.PI);
+    const arc = dash / circ * (2 * Math.PI);
+    g.beginPath();
+    for (let a = 0; a < 2 * Math.PI; a += step) {
+      const end = Math.min(a + arc, 2 * Math.PI);
+      const segs = Math.max(Math.ceil((end - a) / 0.1), 2);
+      const da = (end - a) / segs;
+      g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      for (let i = 1; i <= segs; i++) {
+        const t = a + da * i;
+        g.lineTo(cx + Math.cos(t) * r, cy + Math.sin(t) * r);
+      }
+    }
+    g.strokePath();
   }
 
 }
