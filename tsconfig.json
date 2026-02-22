@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "strict": false,
     "noEmit": true,
+    "resolveJsonModule": true,
     "lib": ["ES2020", "DOM"]
   },
   "include": ["src", "shared", "apps/*/src"],

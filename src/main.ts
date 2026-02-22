@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { BuildScene }  from './scenes/BuildScene';
 import { GameScene }   from './scenes/GameScene';
 import { ResultScene } from './scenes/ResultScene';
+import { SkillTreeScene } from './skilltree/SkillTreeScene';
 
 new Phaser.Game({
   type: Phaser.AUTO,
@@ -16,5 +17,5 @@ new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BuildScene, GameScene, ResultScene],
+  scene: [BuildScene, GameScene, ResultScene, SkillTreeScene],
 });

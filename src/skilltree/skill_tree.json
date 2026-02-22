@@ -1,0 +1,233 @@
+{
+  "meta": {
+    "name": "hellos_concentration_skill_tree",
+    "version": "0.2.0",
+    "tree_type": "single_giant_tree",
+    "region_count": 8,
+    "node_tradeoff_strength": "B",
+    "focus": "rules-heavy",
+    "major_nodes_more_fun_than_keystones": true,
+    "skill_system": {
+      "type": "concentration_stances",
+      "max_active_stances": 1,
+      "switch_only": true,
+      "switch_cooldown_ms": 1500,
+      "notes": [
+        "집중(태세)은 지속 전장 규칙이다.",
+        "새 태세를 활성화하면 기존 태세는 즉시 해제된다.",
+        "전환 외의 추가 취약/버스트/페널티는 없다(원하면 params로만 확장)."
+      ]
+    },
+    "pathing": {
+      "start_node": "HUB-START",
+      "allocation_rule": "START에서 연결된 경로를 따라 edges로 인접한 노드만 찍을 수 있다.",
+      "dependency_rule": "nodes[].requires에 명시된 선행 노드를 먼저 찍어야 한다(게이팅).",
+      "order_hint": [
+        "1) HUB에서 원하는 권역 Entry로 진입",
+        "2) (자동생성 Minor)로 테마 체감 확보",
+        "3) Major 1~2개로 플레이 규칙 변화 체감",
+        "4) 필요 시 Bridge로 인접 권역 보완",
+        "5) Stance(집중 태세) 해금 후 전투 중 전환으로 승리법을 스위치"
+      ]
+    }
+  },
+  "regions": [
+    { "id": 1, "code": "R1", "name": "Stillness", "theme": "포대·정지", "primary_trigger": "정지 유지" },
+    { "id": 2, "code": "R2", "name": "Momentum", "theme": "기동·회전", "primary_trigger": "연속 이동" },
+    { "id": 3, "code": "R3", "name": "Kiting", "theme": "거리·카이팅", "primary_trigger": "안전거리 유지" },
+    { "id": 4, "code": "R4", "name": "Close", "theme": "근접·제압", "primary_trigger": "근접 교전 유지" },
+    { "id": 5, "code": "R5", "name": "MarkExecute", "theme": "표식·집행", "primary_trigger": "표식 유지/교체" },
+    { "id": 6, "code": "R6", "name": "Zone", "theme": "존·영역", "primary_trigger": "존 안/밖" },
+    { "id": 7, "code": "R7", "name": "Reform", "theme": "리폼·진형", "primary_trigger": "리폼 성공/진입" },
+    { "id": 8, "code": "R8", "name": "Intercept", "theme": "요격·차단", "primary_trigger": "텔레그래프/침투 감지" }
+  ],
+  "nodes": [
+    { "id": "HUB-START", "region": "HUB", "tier": "START", "name": "Start", "trigger": "—", "effect": "패시브 트리 시작점", "tradeoff": "—", "visibility": "중앙 시작 노드", "requires": [], "effect_lines": ["패시브 트리 시작점"], "tradeoff_lines": [], "stats": [], "rules": [] },
+
+    { "id": "HUB-N01", "region": "HUB", "tier": "MINOR", "name": "Core Link 1",  "trigger": "항상", "effect": "전군 공격 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 공격 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_attack_cd_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N02", "region": "HUB", "tier": "MINOR", "name": "Core Link 2",  "trigger": "항상", "effect": "전군 이동 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 이동 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_speed_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N03", "region": "HUB", "tier": "MINOR", "name": "Core Link 3",  "trigger": "항상", "effect": "전군 피해 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 피해 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_damage_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N04", "region": "HUB", "tier": "MINOR", "name": "Core Link 4",  "trigger": "항상", "effect": "전군 체력 +1", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 체력 +1"], "tradeoff_lines": [], "stats": [{ "stat": "global_max_hp_flat", "op": "add", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N05", "region": "HUB", "tier": "MINOR", "name": "Core Link 5",  "trigger": "항상", "effect": "전군 공격 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 공격 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_attack_cd_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N06", "region": "HUB", "tier": "MINOR", "name": "Core Link 6",  "trigger": "항상", "effect": "전군 이동 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 이동 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_speed_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N07", "region": "HUB", "tier": "MINOR", "name": "Core Link 7",  "trigger": "항상", "effect": "전군 피해 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 피해 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_damage_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N08", "region": "HUB", "tier": "MINOR", "name": "Core Link 8",  "trigger": "항상", "effect": "전군 체력 +1", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 체력 +1"], "tradeoff_lines": [], "stats": [{ "stat": "global_max_hp_flat", "op": "add", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N09", "region": "HUB", "tier": "MINOR", "name": "Core Link 9",  "trigger": "항상", "effect": "전군 공격 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 공격 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_attack_cd_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N10", "region": "HUB", "tier": "MINOR", "name": "Core Link 10", "trigger": "항상", "effect": "전군 이동 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 이동 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_speed_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N11", "region": "HUB", "tier": "MINOR", "name": "Core Link 11", "trigger": "항상", "effect": "전군 피해 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 피해 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_damage_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N12", "region": "HUB", "tier": "MINOR", "name": "Core Link 12", "trigger": "항상", "effect": "전군 체력 +1", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 체력 +1"], "tradeoff_lines": [], "stats": [{ "stat": "global_max_hp_flat", "op": "add", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N13", "region": "HUB", "tier": "MINOR", "name": "Core Link 13", "trigger": "항상", "effect": "전군 공격 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 공격 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_attack_cd_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N14", "region": "HUB", "tier": "MINOR", "name": "Core Link 14", "trigger": "항상", "effect": "전군 이동 속도 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 이동 속도 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_speed_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N15", "region": "HUB", "tier": "MINOR", "name": "Core Link 15", "trigger": "항상", "effect": "전군 피해 +1%", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 피해 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "global_damage_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "HUB-N16", "region": "HUB", "tier": "MINOR", "name": "Core Link 16", "trigger": "항상", "effect": "전군 체력 +1", "tradeoff": "—", "visibility": "링크 노드", "requires": ["HUB-START"], "effect_lines": ["전군 체력 +1"], "tradeoff_lines": [], "stats": [{ "stat": "global_max_hp_flat", "op": "add", "value": 1, "scope": "global" }], "rules": [] },
+
+    { "id": "R1-E1", "region": "R1", "tier": "MINOR", "name": "Stillness Entry 1", "trigger": "정지 유지", "effect": "포대 예열 속도 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N01"], "effect_lines": ["포대 예열 속도 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "stillness_warmup_pct", "op": "add_pct", "value": 2, "scope": "R1" }], "rules": [] },
+    { "id": "R1-E2", "region": "R1", "tier": "MINOR", "name": "Stillness Entry 2", "trigger": "정지 유지", "effect": "정지 유지 보상 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N02"], "effect_lines": ["정지 유지 보상 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "stillness_warmup_pct", "op": "add_pct", "value": 2, "scope": "R1" }], "rules": [] },
+    { "id": "R1-E3", "region": "R1", "tier": "MINOR", "name": "Stillness Entry 3", "trigger": "정지 유지", "effect": "리폼 윈도우 +20ms", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N03"], "effect_lines": ["리폼 윈도우 +20ms"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "reform_success_window_flat_ms", "op": "add", "value": 20, "scope": "R7" }], "rules": [] },
+
+    { "id": "R2-E1", "region": "R2", "tier": "MINOR", "name": "Momentum Entry 1", "trigger": "연속 이동", "effect": "모멘텀 누적 속도 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N03"], "effect_lines": ["모멘텀 누적 속도 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "momentum_stack_rate_pct", "op": "add_pct", "value": 2, "scope": "R2" }], "rules": [] },
+    { "id": "R2-E2", "region": "R2", "tier": "MINOR", "name": "Momentum Entry 2", "trigger": "연속 이동", "effect": "전군 이동 속도 +1%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N04"], "effect_lines": ["전군 이동 속도 +1%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "global_speed_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+    { "id": "R2-E3", "region": "R2", "tier": "MINOR", "name": "Momentum Entry 3", "trigger": "연속 이동", "effect": "정지→이동 전환 회복 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N05"], "effect_lines": ["정지→이동 전환 회복 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "still_to_move_recovery_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+
+    { "id": "R3-E1", "region": "R3", "tier": "MINOR", "name": "Kiting Entry 1", "trigger": "안전거리 유지", "effect": "안전거리 유지 보상 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N05"], "effect_lines": ["안전거리 유지 보상 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "kiting_safe_distance_pct", "op": "add_pct", "value": 2, "scope": "R3" }], "rules": [] },
+    { "id": "R3-E2", "region": "R3", "tier": "MINOR", "name": "Kiting Entry 2", "trigger": "안전거리 유지", "effect": "궁병 사거리 +15", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N06"], "effect_lines": ["궁병 사거리 +15"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "archer_range_flat", "op": "add", "value": 15, "scope": "archer" }], "rules": [] },
+    { "id": "R3-E3", "region": "R3", "tier": "MINOR", "name": "Kiting Entry 3", "trigger": "안전거리 유지", "effect": "위협 대응 시간 -20ms", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N07"], "effect_lines": ["위협 대응 시간 -20ms"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "intercept_response_flat_ms", "op": "add", "value": -20, "scope": "R8" }], "rules": [] },
+
+    { "id": "R4-E1", "region": "R4", "tier": "MINOR", "name": "Close Entry 1", "trigger": "근접 교전 유지", "effect": "제압 연쇄 확률 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N07"], "effect_lines": ["제압 연쇄 확률 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "close_control_chance_pct", "op": "add_pct", "value": 2, "scope": "R4" }], "rules": [] },
+    { "id": "R4-E2", "region": "R4", "tier": "MINOR", "name": "Close Entry 2", "trigger": "근접 교전 유지", "effect": "선봉 피해 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N08"], "effect_lines": ["선봉 피해 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "vanguard_damage_pct", "op": "add_pct", "value": 2, "scope": "vanguard" }], "rules": [] },
+    { "id": "R4-E3", "region": "R4", "tier": "MINOR", "name": "Close Entry 3", "trigger": "근접 교전 유지", "effect": "선봉 체력 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N09"], "effect_lines": ["선봉 체력 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "vanguard_max_hp_pct", "op": "add_pct", "value": 2, "scope": "vanguard" }], "rules": [] },
+
+    { "id": "R5-E1", "region": "R5", "tier": "MINOR", "name": "Mark Entry 1", "trigger": "표식 유지/교체", "effect": "표식 유지 보상 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N09"], "effect_lines": ["표식 유지 보상 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "mark_uptime_scale_pct", "op": "add_pct", "value": 2, "scope": "R5" }], "rules": [] },
+    { "id": "R5-E2", "region": "R5", "tier": "MINOR", "name": "Mark Entry 2", "trigger": "표식 유지/교체", "effect": "표식 효율 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N10"], "effect_lines": ["표식 효율 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "mark_uptime_scale_pct", "op": "add_pct", "value": 2, "scope": "R5" }], "rules": [] },
+    { "id": "R5-E3", "region": "R5", "tier": "MINOR", "name": "Mark Entry 3", "trigger": "표식 유지/교체", "effect": "표식 기반 제어 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N11"], "effect_lines": ["표식 기반 제어 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "mark_to_zone_control_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+
+    { "id": "R6-E1", "region": "R6", "tier": "MINOR", "name": "Zone Entry 1", "trigger": "존 안/밖", "effect": "존 안 보상 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N11"], "effect_lines": ["존 안 보상 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "zone_in_bonus_pct", "op": "add_pct", "value": 2, "scope": "R6" }], "rules": [] },
+    { "id": "R6-E2", "region": "R6", "tier": "MINOR", "name": "Zone Entry 2", "trigger": "존 안/밖", "effect": "존 중심 운영 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N12"], "effect_lines": ["존 중심 운영 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "zone_in_bonus_pct", "op": "add_pct", "value": 2, "scope": "R6" }], "rules": [] },
+    { "id": "R6-E3", "region": "R6", "tier": "MINOR", "name": "Zone Entry 3", "trigger": "존 안/밖", "effect": "존→리폼 회복 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N13"], "effect_lines": ["존→리폼 회복 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "zone_to_reform_recover_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+
+    { "id": "R7-E1", "region": "R7", "tier": "MINOR", "name": "Reform Entry 1", "trigger": "리폼 성공/진입", "effect": "리폼 반격 윈도우 +30ms", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N13"], "effect_lines": ["리폼 반격 윈도우 +30ms"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "reform_success_window_flat_ms", "op": "add", "value": 30, "scope": "R7" }], "rules": [] },
+    { "id": "R7-E2", "region": "R7", "tier": "MINOR", "name": "Reform Entry 2", "trigger": "리폼 성공/진입", "effect": "리폼 성공 보상 +30ms", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N14"], "effect_lines": ["리폼 성공 보상 +30ms"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "reform_success_window_flat_ms", "op": "add", "value": 30, "scope": "R7" }], "rules": [] },
+    { "id": "R7-E3", "region": "R7", "tier": "MINOR", "name": "Reform Entry 3", "trigger": "리폼 성공/진입", "effect": "전군 공격 속도 +1%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N15"], "effect_lines": ["전군 공격 속도 +1%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "global_attack_cd_pct", "op": "add_pct", "value": 1, "scope": "global" }], "rules": [] },
+
+    { "id": "R8-E1", "region": "R8", "tier": "MINOR", "name": "Intercept Entry 1", "trigger": "텔레그래프/침투 감지", "effect": "요격 반응 시간 -30ms", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N15"], "effect_lines": ["요격 반응 시간 -30ms"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "intercept_response_flat_ms", "op": "add", "value": -30, "scope": "R8" }], "rules": [] },
+    { "id": "R8-E2", "region": "R8", "tier": "MINOR", "name": "Intercept Entry 2", "trigger": "텔레그래프/침투 감지", "effect": "위협 대응 속도 -30ms", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N16"], "effect_lines": ["위협 대응 속도 -30ms"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "intercept_response_flat_ms", "op": "add", "value": -30, "scope": "R8" }], "rules": [] },
+    { "id": "R8-E3", "region": "R8", "tier": "MINOR", "name": "Intercept Entry 3", "trigger": "텔레그래프/침투 감지", "effect": "요격 후 방어 +2%", "tradeoff": "다른 테마 효율 소폭↓", "visibility": "권역 문양", "requires": ["HUB-N01"], "effect_lines": ["요격 후 방어 +2%"], "tradeoff_lines": ["다른 테마 효율 소폭 감소"], "stats": [{ "stat": "intercept_to_still_guard_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+
+    { "id": "R1-M1", "region": "R1", "tier": "MAJOR", "name": "포대 예열 단축", "trigger": "정지 유지 시작", "effect": "동기화 진입 시간 감소", "tradeoff": "이동 중 궁병 효율 감소", "visibility": "정지 운영 강화", "requires": ["R1-E2"], "effect_lines": ["정지 시 동기화 준비 시간 15% 감소"], "tradeoff_lines": ["이동 중 궁병 반응 저하"], "stats": [], "rules": [{ "rule_id": "R1_METRONOME_WARMUP_REDUCE", "params": { "warmupMult": 0.85 }, "scope": "archer" }] },
+    { "id": "R1-M2", "region": "R1", "tier": "MAJOR", "name": "동기화 유지 유예", "trigger": "동기화 유지", "effect": "짧은 이동에도 동기화 유지", "tradeoff": "재진입 느림", "visibility": "정지 운영 안정", "requires": ["R1-M1"], "effect_lines": ["짧은 이동에도 동기화 250ms 유지"], "tradeoff_lines": ["동기화 재진입 시간 증가"], "stats": [], "rules": [{ "rule_id": "R1_SYNC_GRACE", "params": { "graceMs": 250 }, "scope": "archer" }] },
+    { "id": "R1-M3", "region": "R1", "tier": "MAJOR", "name": "포대 카운터 반격", "trigger": "포대 중 위협 감지", "effect": "방어형 일제사격 변형", "tradeoff": "정리력 감소", "visibility": "위협 대응", "requires": ["R1-M2"], "effect_lines": ["포대 중 침투 감지 시 방어형 일제사격"], "tradeoff_lines": ["공격형 일제사격 위력 감소"], "stats": [], "rules": [{ "rule_id": "R1_DEFENSIVE_VOLLEY", "params": { "mode": 1, "chance": 1.0 }, "scope": "archer" }] },
+
+    { "id": "R2-M1", "region": "R2", "tier": "MAJOR", "name": "모멘텀 누적", "trigger": "연속 이동", "effect": "이동 누적 템포 상승", "tradeoff": "정지 시 템포 상실", "visibility": "기동 운영", "requires": ["R2-E2"], "effect_lines": ["연속 이동 시 초당 템포 1 누적 (최대 5)"], "tradeoff_lines": ["정지 시 템포 급감"], "stats": [], "rules": [{ "rule_id": "R2_MOMENTUM_STACK", "params": { "maxStacks": 5, "stackPerSec": 1 }, "scope": "global" }] },
+    { "id": "R2-M2", "region": "R2", "tier": "MAJOR", "name": "회전 절단 윈도우", "trigger": "큰 방향 전환", "effect": "절단 윈도우", "tradeoff": "이후 취약", "visibility": "회전 타이밍", "requires": ["R2-M1"], "effect_lines": ["방향 전환 후 350ms 정리 효율 증가"], "tradeoff_lines": ["윈도우 후 잠시 취약"], "stats": [], "rules": [{ "rule_id": "R2_TURN_CUT_WINDOW", "params": { "windowMs": 350 }, "scope": "global" }] },
+    { "id": "R2-M3", "region": "R2", "tier": "MAJOR", "name": "기동 안전장치", "trigger": "이동 중 위협 감지", "effect": "최소 요격 우선권 유지", "tradeoff": "최대 보상 상한 감소", "visibility": "기동 중 붕괴 방지", "requires": ["R2-M2"], "effect_lines": ["이동 중에도 최소 요격 우선권 유지"], "tradeoff_lines": ["모멘텀 최대 보상 15% 감소"], "stats": [], "rules": [{ "rule_id": "R2_MOBILE_GUARDRAIL", "params": { "interceptAssist": 1, "capMult": 0.85 }, "scope": "global" }] },
+
+    { "id": "R3-M1", "region": "R3", "tier": "MAJOR", "name": "안전거리 보상", "trigger": "안전거리 유지", "effect": "분리·저지 강화", "tradeoff": "근접 교환 손해", "visibility": "카이팅 운영", "requires": ["R3-E2"], "effect_lines": ["안전거리 유지 시 분리·저지 20% 증가"], "tradeoff_lines": ["근접 교전 효율 저하"], "stats": [], "rules": [{ "rule_id": "R3_SAFE_DISTANCE_REWARD", "params": { "rewardMult": 1.2 }, "scope": "global" }] },
+    { "id": "R3-M2", "region": "R3", "tier": "MAJOR", "name": "접근자 우선 타겟", "trigger": "안전거리 유지", "effect": "접근자 우선 타겟팅", "tradeoff": "붙은 적 처리 감소", "visibility": "타겟 규칙 변화", "requires": ["R3-M1"], "effect_lines": ["접근 중인 적을 우선 타겟팅"], "tradeoff_lines": ["근접 적 처리 속도 감소"], "stats": [], "rules": [{ "rule_id": "R3_APPROACHER_PRIORITY", "params": { "enabled": 1 }, "scope": "archer" }] },
+    { "id": "R3-M3", "region": "R3", "tier": "MAJOR", "name": "재확보 리셋 보상", "trigger": "거리 재확보", "effect": "정리 윈도우", "tradeoff": "실패 시 불안정", "visibility": "리셋 플레이", "requires": ["R3-M2"], "effect_lines": ["거리 재확보 시 500ms 정리 윈도우"], "tradeoff_lines": ["재확보 실패 시 불안정 증가"], "stats": [], "rules": [{ "rule_id": "R3_REACQUIRE_BURST", "params": { "burstMs": 500 }, "scope": "global" }] },
+
+    { "id": "R4-M1", "region": "R4", "tier": "MAJOR", "name": "난전 단축", "trigger": "근접 교전 유지", "effect": "정리 가속", "tradeoff": "원거리 비효율", "visibility": "붙으면 끝", "requires": ["R4-E2"], "effect_lines": ["근접 교전 유지 시 정리 속도 20% 증가"], "tradeoff_lines": ["원거리 운영 비효율"], "stats": [], "rules": [{ "rule_id": "R4_CLOSE_SHORTEN", "params": { "shortenMult": 1.2 }, "scope": "vanguard" }] },
+    { "id": "R4-M2", "region": "R4", "tier": "MAJOR", "name": "제압 연쇄", "trigger": "근접 연속 타격", "effect": "제압 연쇄", "tradeoff": "실패 공백", "visibility": "제압 체감", "requires": ["R4-M1"], "effect_lines": ["근접 연속 타격 시 제압 연쇄 발생"], "tradeoff_lines": ["실패 시 리듬 공백"], "stats": [], "rules": [{ "rule_id": "R4_CONTROL_CHAIN", "params": { "chainChance": 1.0 }, "scope": "vanguard" }] },
+    { "id": "R4-M3", "region": "R4", "tier": "MAJOR", "name": "근접 생존 완충", "trigger": "근접 피격 누적", "effect": "짧은 완충", "tradeoff": "정리 일부 감소", "visibility": "버티기", "requires": ["R4-M2"], "effect_lines": ["근접 피격 누적 시 300ms 보호 완충"], "tradeoff_lines": ["근접 정리 속도 일부 감소"], "stats": [], "rules": [{ "rule_id": "R4_CLOSE_BUFFER", "params": { "bufferMs": 300 }, "scope": "vanguard" }] },
+
+    { "id": "R5-M1", "region": "R5", "tier": "MAJOR", "name": "표식 유지 누적", "trigger": "표식 유지", "effect": "유지 보상 강화", "tradeoff": "교체 비용 증가", "visibility": "표식 운영", "requires": ["R5-E2"], "effect_lines": ["표식 유지 시간에 비례해 집행 보상 강화"], "tradeoff_lines": ["표식 교체 비용 증가"], "stats": [], "rules": [{ "rule_id": "R5_MARK_UPTIME_SCALE", "params": { "scalePerSec": 1 }, "scope": "mark" }] },
+    { "id": "R5-M2", "region": "R5", "tier": "MAJOR", "name": "집행 타이밍", "trigger": "표식 조건", "effect": "집행 발생", "tradeoff": "실패 공백", "visibility": "피니시", "requires": ["R5-M1"], "effect_lines": ["표식 대상 체력 25% 이하 시 즉시 집행"], "tradeoff_lines": ["실패 시 기회비용 공백"], "stats": [], "rules": [{ "rule_id": "R5_EXECUTE_WINDOW", "params": { "executeThreshold": 0.25 }, "scope": "mark" }] },
+    { "id": "R5-M3", "region": "R5", "tier": "MAJOR", "name": "표식 기반 위협 억제", "trigger": "표식 존재", "effect": "위협 대응 우선권", "tradeoff": "표식 없으면 밋밋", "visibility": "피크 대응", "requires": ["R5-M2"], "effect_lines": ["표식 주변 위협 대응 우선권 20% 증가"], "tradeoff_lines": ["표식 없을 때 효율 저하"], "stats": [], "rules": [{ "rule_id": "R5_MARK_THREAT_SUPPRESS", "params": { "priorityBoost": 1.2 }, "scope": "mark" }] },
+
+    { "id": "R6-M1", "region": "R6", "tier": "MAJOR", "name": "경계 반전 규칙", "trigger": "존 안/밖", "effect": "존 안/밖 규칙 차이", "tradeoff": "위치 실수 손해", "visibility": "구획화", "requires": ["R6-E2"], "effect_lines": ["존 안 보상 20% 증가", "존 밖 효율 10% 감소"], "tradeoff_lines": ["위치 실수 시 확실한 손해"], "stats": [], "rules": [{ "rule_id": "R6_ZONE_IN_OUT_RULES", "params": { "inBonus": 1.2, "outPenalty": 0.9 }, "scope": "zone" }] },
+    { "id": "R6-M2", "region": "R6", "tier": "MAJOR", "name": "존 이동 목적", "trigger": "존 생성/이동", "effect": "자리싸움 유도", "tradeoff": "존 없으면 평범", "visibility": "전장 재배치", "requires": ["R6-M1"], "effect_lines": ["존이 자리싸움·구획화를 유도"], "tradeoff_lines": ["존 없을 때 효과 없음"], "stats": [], "rules": [{ "rule_id": "R6_ZONE_OBJECTIVE", "params": { "enabled": 1 }, "scope": "zone" }] },
+    { "id": "R6-M3", "region": "R6", "tier": "MAJOR", "name": "존 침범 반격", "trigger": "존 침범", "effect": "반격 윈도우", "tradeoff": "유지 비용 증가", "visibility": "카운터", "requires": ["R6-M2"], "effect_lines": ["존 침범 시 400ms 반격 윈도우"], "tradeoff_lines": ["존 유지 비용 증가"], "stats": [], "rules": [{ "rule_id": "R6_ZONE_COUNTER_WINDOW", "params": { "windowMs": 400 }, "scope": "zone" }] },
+
+    { "id": "R7-M1", "region": "R7", "tier": "MAJOR", "name": "리폼 성공 보상", "trigger": "리폼 완료", "effect": "반격 윈도우", "tradeoff": "실패 공백", "visibility": "리듬", "requires": ["R7-E2"], "effect_lines": ["리폼 완료 시 450ms 반격 윈도우"], "tradeoff_lines": ["리폼 실패 시 공백·위기"], "stats": [], "rules": [{ "rule_id": "R7_REFORM_SUCCESS_WINDOW", "params": { "windowMs": 450 }, "scope": "reform" }] },
+    { "id": "R7-M2", "region": "R7", "tier": "MAJOR", "name": "리폼 내구", "trigger": "리폼 중 위협", "effect": "리폼 안정", "tradeoff": "비용 증가", "visibility": "안전", "requires": ["R7-M1"], "effect_lines": ["리폼 중 안정도 20% 증가"], "tradeoff_lines": ["리폼 비용 증가"], "stats": [], "rules": [{ "rule_id": "R7_REFORM_STABILITY", "params": { "stabilityMult": 1.2 }, "scope": "reform" }] },
+    { "id": "R7-M3", "region": "R7", "tier": "MAJOR", "name": "진형 분기", "trigger": "상태(정지/이동/회전)", "effect": "역할 분기", "tradeoff": "실패 손해", "visibility": "운영 분기", "requires": ["R7-M2"], "effect_lines": ["진형 상태별 역할이 극단적으로 분기"], "tradeoff_lines": ["잘못된 상태에서 큰 손해"], "stats": [], "rules": [{ "rule_id": "R7_FORMATION_BRANCH", "params": { "enabled": 1 }, "scope": "reform" }] },
+
+    { "id": "R8-M1", "region": "R8", "tier": "MAJOR", "name": "요격 우선권", "trigger": "대셔/침투 감지", "effect": "요격 우선 수행", "tradeoff": "평시 정리 감소", "visibility": "피크 대응", "requires": ["R8-E2"], "effect_lines": ["대셔·침투 감지 시 즉시 차단 시도"], "tradeoff_lines": ["평시 정리 속도 감소"], "stats": [], "rules": [{ "rule_id": "R8_INTERCEPT_PRIORITY", "params": { "enabled": 1 }, "scope": "intercept" }] },
+    { "id": "R8-M2", "region": "R8", "tier": "MAJOR", "name": "차단 후 안정", "trigger": "요격 성공", "effect": "복구 시간", "tradeoff": "다른 역할 약화", "visibility": "숨 쉴 틈", "requires": ["R8-M1"], "effect_lines": ["요격 성공 시 600ms 라인 복구 시간"], "tradeoff_lines": ["안정 구간 중 다른 역할 약화"], "stats": [], "rules": [{ "rule_id": "R8_POST_INTERCEPT_STABILIZE", "params": { "stabilizeMs": 600 }, "scope": "intercept" }] },
+    { "id": "R8-M3", "region": "R8", "tier": "MAJOR", "name": "요격 실패 완충", "trigger": "요격 실패", "effect": "손실 완화", "tradeoff": "보험료", "visibility": "덜 터짐", "requires": ["R8-M2"], "effect_lines": ["요격 실패 시 피해 15% 경감"], "tradeoff_lines": ["평시 성능 일부 감소"], "stats": [], "rules": [{ "rule_id": "R8_FAILSAFE", "params": { "reduceLossMult": 0.85 }, "scope": "intercept" }] },
+
+    { "id": "STANCE-STILLNESS", "region": "R1", "tier": "STANCE", "name": "포대 집중", "trigger": "전투 중 태세 전환", "effect": "정지 운영을 핵심 승리법으로 만든다", "tradeoff": "이동 운영에는 불리", "visibility": "태세 아이콘(집중)", "requires": ["R1-M3"], "effect_lines": ["정지 유지 시 궁병 동기화 일제사격 강화", "정지 상태에서 전열 유지가 단단해짐"], "tradeoff_lines": ["이동 위주의 운영 효율이 낮음"], "stats": [], "rules": [{ "rule_id": "STANCE_STILLNESS", "params": { "enabled": 1 }, "scope": "concentration" }, { "rule_id": "CONC_SWITCH_RULE", "params": { "group": "concentration", "maxActive": 1, "cooldownMs": 1500 }, "scope": "concentration" }] },
+    { "id": "STANCE_MOMENTUM", "region": "R2", "tier": "STANCE", "name": "기동 집중", "trigger": "전투 중 태세 전환", "effect": "이동 유지 템포를 승리법으로 만든다", "tradeoff": "정지 포대에는 불리", "visibility": "태세 아이콘(집중)", "requires": ["R2-M3"], "effect_lines": ["이동 유지 시 재배치·요격 템포가 빨라짐", "이동 중 진형이 덜 무너짐"], "tradeoff_lines": ["정지 운영 효율이 낮음"], "stats": [], "rules": [{ "rule_id": "STANCE_MOMENTUM", "params": { "enabled": 1 }, "scope": "concentration" }, { "rule_id": "CONC_SWITCH_RULE", "params": { "group": "concentration", "maxActive": 1, "cooldownMs": 1500 }, "scope": "concentration" }] },
+    { "id": "STANCE_KITING", "region": "R3", "tier": "STANCE", "name": "거리 집중", "trigger": "전투 중 태세 전환", "effect": "안전거리 유지가 승리법이 된다", "tradeoff": "근접 난전에 불리", "visibility": "태세 아이콘(집중)", "requires": ["R3-M3"], "effect_lines": ["안전거리 유지 시 접근자를 우선적으로 끊어냄", "후열 안전이 올라가 침투 대응이 쉬워짐"], "tradeoff_lines": ["근접 난전 효율이 낮음"], "stats": [], "rules": [{ "rule_id": "STANCE_KITING", "params": { "enabled": 1 }, "scope": "concentration" }, { "rule_id": "CONC_SWITCH_RULE", "params": { "group": "concentration", "maxActive": 1, "cooldownMs": 1500 }, "scope": "concentration" }] },
+    { "id": "STANCE_CLOSE", "region": "R4", "tier": "STANCE", "name": "근접 집중", "trigger": "전투 중 태세 전환", "effect": "근접 교전이 승리법이 된다", "tradeoff": "원거리 운영에 불리", "visibility": "태세 아이콘(집중)", "requires": ["R4-M3"], "effect_lines": ["근접 교전 유지 시 제압·정리가 강해짐", "전선이 붙었을 때 전투가 빨리 끝나는 성향"], "tradeoff_lines": ["멀리서 끄는 운영은 비효율"], "stats": [], "rules": [{ "rule_id": "STANCE_CLOSE", "params": { "enabled": 1 }, "scope": "concentration" }, { "rule_id": "CONC_SWITCH_RULE", "params": { "group": "concentration", "maxActive": 1, "cooldownMs": 1500 }, "scope": "concentration" }] },
+    { "id": "STANCE_MARK", "region": "R5", "tier": "STANCE", "name": "표식 집중", "trigger": "전투 중 태세 전환", "effect": "표식 유지/교체가 승리법이 된다", "tradeoff": "표식 공백에 불리", "visibility": "태세 아이콘(집중)", "requires": ["R5-M3"], "effect_lines": ["표식 대상 우선 타겟 규칙이 강화됨", "표식 유지 시 집행 기회가 늘어남"], "tradeoff_lines": ["표식이 끊기면 효율이 떨어짐"], "stats": [], "rules": [{ "rule_id": "STANCE_MARK", "params": { "enabled": 1 }, "scope": "concentration" }, { "rule_id": "CONC_SWITCH_RULE", "params": { "group": "concentration", "maxActive": 1, "cooldownMs": 1500 }, "scope": "concentration" }] },
+    { "id": "STANCE_INTERCEPT", "region": "R8", "tier": "STANCE", "name": "요격 집중", "trigger": "전투 중 태세 전환", "effect": "피크 위협을 끊는 승리법이 된다", "tradeoff": "평시 정리에 불리", "visibility": "태세 아이콘(집중)", "requires": ["R8-M3"], "effect_lines": ["대셔·침투 같은 위협을 우선적으로 끊어냄", "피크에서 라인 붕괴를 막는 성향이 강해짐"], "tradeoff_lines": ["평시 잡몹 정리는 느려질 수 있음"], "stats": [], "rules": [{ "rule_id": "STANCE_INTERCEPT", "params": { "enabled": 1 }, "scope": "concentration" }, { "rule_id": "CONC_SWITCH_RULE", "params": { "group": "concentration", "maxActive": 1, "cooldownMs": 1500 }, "scope": "concentration" }] },
+
+    { "id": "R6-K1", "region": "R6", "tier": "KEYSTONE", "name": "영역 지배", "trigger": "존 상태(임계 도달)", "effect": "존 안/밖 규칙 차이가 커짐", "tradeoff": "존 밖 효율↓", "visibility": "존 경계 연출", "requires": ["R6-M3"], "effect_lines": ["존 안 보상 30% 증가", "존 밖 효율 15% 감소"], "tradeoff_lines": ["존 밖 효율 크게 저하"], "stats": [], "rules": [{ "rule_id": "R6_ZONE_DOMINION", "params": { "inBonus": 1.3, "outPenalty": 0.85 }, "scope": "zone" }] },
+    { "id": "R7-K1", "region": "R7", "tier": "KEYSTONE", "name": "재편성 교리", "trigger": "리폼 성공(임계 도달)", "effect": "리폼 성공이 전투 리듬 핵심", "tradeoff": "리폼 실패 리스크↑", "visibility": "리폼 완료 펄스", "requires": ["R7-M3"], "effect_lines": ["리폼 성공이 전투 리듬의 핵심이 됨"], "tradeoff_lines": ["리폼 실패 리스크 증가"], "stats": [], "rules": [{ "rule_id": "R7_REFORM_DOCTRINE", "params": { "enabled": 1 }, "scope": "reform" }] },
+
+    { "id": "BR-R1-R2", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R1↔R2", "trigger": "—", "effect": "정지↔이동 전환 안정 +2%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R1-M2"], "effect_lines": ["정지↔이동 전환 안정 +2%"], "tradeoff_lines": [], "stats": [{ "stat": "move_to_still_stability_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+    { "id": "BR-R2-R3", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R2↔R3", "trigger": "—", "effect": "기동 중 거리 유지 +1%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R2-M2"], "effect_lines": ["기동 중 거리 유지 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "kiting_safe_distance_pct", "op": "add_pct", "value": 1, "scope": "R3" }], "rules": [] },
+    { "id": "BR-R3-R4", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R3↔R4", "trigger": "—", "effect": "거리→근접 전환 제압 +1%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R3-M2"], "effect_lines": ["거리→근접 전환 제압 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "close_control_chance_pct", "op": "add_pct", "value": 1, "scope": "R4" }], "rules": [] },
+    { "id": "BR-R4-R5", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R4↔R5", "trigger": "—", "effect": "근접 처치 시 표식 효율 +1%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R4-M2"], "effect_lines": ["근접 처치 시 표식 효율 +1%"], "tradeoff_lines": [], "stats": [{ "stat": "mark_uptime_scale_pct", "op": "add_pct", "value": 1, "scope": "R5" }], "rules": [] },
+    { "id": "BR-R5-R6", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R5↔R6", "trigger": "—", "effect": "표식↔존 연계 효율 +2%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R5-M2"], "effect_lines": ["표식↔존 연계 효율 +2%"], "tradeoff_lines": [], "stats": [{ "stat": "mark_to_zone_control_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+    { "id": "BR-R6-R7", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R6↔R7", "trigger": "—", "effect": "존↔리폼 회복 +2%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R6-M2"], "effect_lines": ["존↔리폼 회복 +2%"], "tradeoff_lines": [], "stats": [{ "stat": "zone_to_reform_recover_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] },
+    { "id": "BR-R7-R8", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R7↔R8", "trigger": "—", "effect": "리폼 후 요격 반응 -20ms", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R7-M2"], "effect_lines": ["리폼 후 요격 반응 -20ms"], "tradeoff_lines": [], "stats": [{ "stat": "intercept_response_flat_ms", "op": "add", "value": -20, "scope": "R8" }], "rules": [] },
+    { "id": "BR-R8-R1", "region": "BRIDGE", "tier": "MINOR", "name": "Bridge R8↔R1", "trigger": "—", "effect": "요격 후 포대 안정 +2%", "tradeoff": "—", "visibility": "브릿지 노드", "requires": ["R8-M2"], "effect_lines": ["요격 후 포대 안정 +2%"], "tradeoff_lines": [], "stats": [{ "stat": "intercept_to_still_guard_pct", "op": "add_pct", "value": 2, "scope": "global" }], "rules": [] }
+  ],
+
+  "edges": [
+    { "a": "HUB-START", "b": "HUB-N01" }, { "a": "HUB-START", "b": "HUB-N02" }, { "a": "HUB-START", "b": "HUB-N03" }, { "a": "HUB-START", "b": "HUB-N04" },
+    { "a": "HUB-START", "b": "HUB-N05" }, { "a": "HUB-START", "b": "HUB-N06" }, { "a": "HUB-START", "b": "HUB-N07" }, { "a": "HUB-START", "b": "HUB-N08" },
+    { "a": "HUB-START", "b": "HUB-N09" }, { "a": "HUB-START", "b": "HUB-N10" }, { "a": "HUB-START", "b": "HUB-N11" }, { "a": "HUB-START", "b": "HUB-N12" },
+    { "a": "HUB-START", "b": "HUB-N13" }, { "a": "HUB-START", "b": "HUB-N14" }, { "a": "HUB-START", "b": "HUB-N15" }, { "a": "HUB-START", "b": "HUB-N16" },
+
+    { "a": "HUB-N01", "b": "R1-E1" }, { "a": "HUB-N02", "b": "R1-E2" }, { "a": "HUB-N03", "b": "R1-E3" },
+    { "a": "HUB-N03", "b": "R2-E1" }, { "a": "HUB-N04", "b": "R2-E2" }, { "a": "HUB-N05", "b": "R2-E3" },
+    { "a": "HUB-N05", "b": "R3-E1" }, { "a": "HUB-N06", "b": "R3-E2" }, { "a": "HUB-N07", "b": "R3-E3" },
+    { "a": "HUB-N07", "b": "R4-E1" }, { "a": "HUB-N08", "b": "R4-E2" }, { "a": "HUB-N09", "b": "R4-E3" },
+    { "a": "HUB-N09", "b": "R5-E1" }, { "a": "HUB-N10", "b": "R5-E2" }, { "a": "HUB-N11", "b": "R5-E3" },
+    { "a": "HUB-N11", "b": "R6-E1" }, { "a": "HUB-N12", "b": "R6-E2" }, { "a": "HUB-N13", "b": "R6-E3" },
+    { "a": "HUB-N13", "b": "R7-E1" }, { "a": "HUB-N14", "b": "R7-E2" }, { "a": "HUB-N15", "b": "R7-E3" },
+    { "a": "HUB-N15", "b": "R8-E1" }, { "a": "HUB-N16", "b": "R8-E2" }, { "a": "HUB-N01", "b": "R8-E3" },
+
+    { "a": "R1-E2", "b": "R1-M1" }, { "a": "R1-M1", "b": "R1-M2" }, { "a": "R1-M2", "b": "R1-M3" }, { "a": "R1-M3", "b": "STANCE-STILLNESS" },
+    { "a": "R2-E2", "b": "R2-M1" }, { "a": "R2-M1", "b": "R2-M2" }, { "a": "R2-M2", "b": "R2-M3" }, { "a": "R2-M3", "b": "STANCE_MOMENTUM" },
+    { "a": "R3-E2", "b": "R3-M1" }, { "a": "R3-M1", "b": "R3-M2" }, { "a": "R3-M2", "b": "R3-M3" }, { "a": "R3-M3", "b": "STANCE_KITING" },
+    { "a": "R4-E2", "b": "R4-M1" }, { "a": "R4-M1", "b": "R4-M2" }, { "a": "R4-M2", "b": "R4-M3" }, { "a": "R4-M3", "b": "STANCE_CLOSE" },
+    { "a": "R5-E2", "b": "R5-M1" }, { "a": "R5-M1", "b": "R5-M2" }, { "a": "R5-M2", "b": "R5-M3" }, { "a": "R5-M3", "b": "STANCE_MARK" },
+    { "a": "R6-E2", "b": "R6-M1" }, { "a": "R6-M1", "b": "R6-M2" }, { "a": "R6-M2", "b": "R6-M3" }, { "a": "R6-M3", "b": "R6-K1" },
+    { "a": "R7-E2", "b": "R7-M1" }, { "a": "R7-M1", "b": "R7-M2" }, { "a": "R7-M2", "b": "R7-M3" }, { "a": "R7-M3", "b": "R7-K1" },
+    { "a": "R8-E2", "b": "R8-M1" }, { "a": "R8-M1", "b": "R8-M2" }, { "a": "R8-M2", "b": "R8-M3" }, { "a": "R8-M3", "b": "STANCE_INTERCEPT" },
+
+    { "a": "R1-M2", "b": "BR-R1-R2" }, { "a": "BR-R1-R2", "b": "R2-M2" },
+    { "a": "R2-M2", "b": "BR-R2-R3" }, { "a": "BR-R2-R3", "b": "R3-M2" },
+    { "a": "R3-M2", "b": "BR-R3-R4" }, { "a": "BR-R3-R4", "b": "R4-M2" },
+    { "a": "R4-M2", "b": "BR-R4-R5" }, { "a": "BR-R4-R5", "b": "R5-M2" },
+    { "a": "R5-M2", "b": "BR-R5-R6" }, { "a": "BR-R5-R6", "b": "R6-M2" },
+    { "a": "R6-M2", "b": "BR-R6-R7" }, { "a": "BR-R6-R7", "b": "R7-M2" },
+    { "a": "R7-M2", "b": "BR-R7-R8" }, { "a": "BR-R7-R8", "b": "R8-M2" },
+    { "a": "R8-M2", "b": "BR-R8-R1" }, { "a": "BR-R8-R1", "b": "R1-M2" }
+  ],
+
+  "minor_generation": {
+    "purpose": "수백 개 노드는 규칙으로 생성(스냅샷으로 풀버전 출력 가능).",
+    "minor_per_region_target": { "min": 40, "max": 60 },
+    "templates": {
+      "node_grammar": "Node = [Trigger] + [RuleChange] + [Tradeoff(B)]",
+      "region_minor_templates": {
+        "R1": [
+          { "trigger": "정지 유지", "rule_change": "포대 준비 속도 소폭↑", "tradeoff": "이동 중 효율 소폭↓" },
+          { "trigger": "정지 유지", "rule_change": "동기화 유지가 쉬워짐", "tradeoff": "전환 시 효율 소폭↓" }
+        ],
+        "R2": [
+          { "trigger": "연속 이동", "rule_change": "이동 유지 템포 소폭↑", "tradeoff": "정지 운영 소폭↓" },
+          { "trigger": "회전", "rule_change": "회전 후 정리 유리구간 소폭↑", "tradeoff": "이후 취약 소폭↑" }
+        ],
+        "R3": [
+          { "trigger": "안전거리 유지", "rule_change": "접근자 저지 소폭↑", "tradeoff": "근접 정리 소폭↓" },
+          { "trigger": "거리 재확보", "rule_change": "재확보 보상 소폭↑", "tradeoff": "실패 리스크 소폭↑" }
+        ],
+        "R4": [
+          { "trigger": "근접 교전 유지", "rule_change": "제압 빈도 소폭↑", "tradeoff": "원거리 효율 소폭↓" },
+          { "trigger": "피격 누적", "rule_change": "완충 소폭↑", "tradeoff": "정리 소폭↓" }
+        ],
+        "R5": [
+          { "trigger": "표식 유지", "rule_change": "표식 효율 소폭↑", "tradeoff": "교체 비용 소폭↑" },
+          { "trigger": "집행", "rule_change": "집행 기회 소폭↑", "tradeoff": "실패 공백 소폭↑" }
+        ],
+        "R6": [
+          { "trigger": "존 안/밖", "rule_change": "존 안 보상 소폭↑", "tradeoff": "존 밖 효율 소폭↓" }
+        ],
+        "R7": [
+          { "trigger": "리폼", "rule_change": "리폼 성공 보상 소폭↑", "tradeoff": "실패 리스크 소폭↑" }
+        ],
+        "R8": [
+          { "trigger": "텔레그래프/침투", "rule_change": "요격 우선권 소폭↑", "tradeoff": "평시 정리 소폭↓" }
+        ]
+      },
+      "layout_rules": {
+        "each_region_has": "Entry(3) → Trunk(Minor) → Major(3) → End(STANCE or KEYSTONE)",
+        "end_nodes": {
+          "R1": "STANCE-STILLNESS",
+          "R2": "STANCE_MOMENTUM",
+          "R3": "STANCE_KITING",
+          "R4": "STANCE_CLOSE",
+          "R5": "STANCE_MARK",
+          "R6": "R6-K1",
+          "R7": "R7-K1",
+          "R8": "STANCE_INTERCEPT"
+        }
+      }
+    }
+  }
+}

@@ -98,6 +98,15 @@ export class BuildScene extends Phaser.Scene {
     sb.on('pointerover', () => sb.setColor('#ffffff'));
     sb.on('pointerout', () => sb.setColor('#00ff88'));
 
+    // Skill Tree button
+    const stb = this.add.text(W / 2, SY + 60, 'SKILL TREE', {
+      fontSize: '22px', color: '#6688cc', fontFamily: FONT,
+      backgroundColor: 'transparent', padding: { left: 24, right: 24, top: 6, bottom: 4 },
+    }).setOrigin(0.5, 0).setDepth(D + 1).setInteractive({ useHandCursor: true });
+    stb.on('pointerdown', () => this.scene.start('SkillTreeScene'));
+    stb.on('pointerover', () => stb.setColor('#ffffff'));
+    stb.on('pointerout', () => stb.setColor('#6688cc'));
+
     this._refresh();
   }
 
