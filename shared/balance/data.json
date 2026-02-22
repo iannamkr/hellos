@@ -9,7 +9,7 @@
     "iframes": 1200,
     "reformCD": 2200,
     "reformThreshold": 220,
-    "reformSpeedMult": 2.8,
+    "reformSpeedMult": 1.6,
     "reformArriveRadius": 18,
     "reformBrakeRadius": 70,
     "reformStaggerInterval": 20,

@@ -79,7 +79,7 @@ export const COMMANDER_FIELDS: FieldSpec[] = [
 ];
 
 export const COMMANDER_REFORM_FIELDS: FieldSpec[] = [
-  { key: 'reformSpeedMult',       default: 2.8, label: 'Reform Speed x',   tip: '재편성 이동 속도 배율', step: 0.01 },
+  { key: 'reformSpeedMult',       default: 1.6, label: 'Reform Speed x',   tip: '재편성 이동 속도 배율', step: 0.01 },
   { key: 'reformArriveRadius',    default: 18,  label: 'Arrive Radius',    tip: '슬롯 도착 판정 반경' },
   { key: 'reformBrakeRadius',     default: 70,  label: 'Brake Radius',     tip: '감속 시작 반경' },
   { key: 'reformStaggerInterval', default: 20,  label: 'Stagger (ms/unit)', tip: '유닛별 재편성 시차' },

@@ -3109,6 +3109,7 @@ export class GameScene extends Phaser.Scene {
     const bars: { ratio: number; color: number }[] = [
       { ratio: this.player.getAttackCooldownRatio(), color: COLOR.commander },
       { ratio: this.player.getDashCooldownRatio(), color: 0x88ddff },
+      { ratio: this.player.getReformCooldownRatio(), color: 0x00ff88 },
     ];
 
     if (this._hasSup('dashPrime')) {
