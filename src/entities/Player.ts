@@ -53,7 +53,7 @@ export class Player extends Phaser.Physics.Arcade.Image {
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as any;
     this._shift = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
-    this._rKey = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+    this._rKey = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
     this.setTint(COLOR.commander);
   }
 
