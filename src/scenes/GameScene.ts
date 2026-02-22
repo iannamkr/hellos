@@ -2289,19 +2289,14 @@ export class GameScene extends Phaser.Scene {
 
   private _updateReformIndicator(): void {
     const D = 10000;
-    if (this.player.isHoldingShift()) {
-      const holdMs = this.player.getShiftHoldMs(this.time.now);
+    if (this.reformActive) {
       if (!this.reformIndicator) {
         this.reformIndicator = this.add.text(this.scale.width / 2, 110, '', {
-          fontSize: '20px', color: '#888888', fontFamily: 'Courier New',
+          fontSize: '20px', color: '#00ff88', fontFamily: 'Courier New',
           padding: { top: 6, bottom: 2 },
         }).setOrigin(0.5).setDepth(D).setScrollFactor(0);
       }
-      if (holdMs < 220) {
-        this.reformIndicator.setText('Reform...').setColor('#888888');
-      } else {
-        this.reformIndicator.setText('Reform!').setColor('#00ff88');
-      }
+      this.reformIndicator.setText('Reform!').setColor('#00ff88');
     } else {
       if (this.reformIndicator) {
         this.reformIndicator.destroy();
